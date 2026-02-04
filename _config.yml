@@ -19,8 +19,8 @@ description: >- # this means to ignore newlines until "baseurl:"
   Computational Methods for PDEs, Structure-Preserving Numerics, Reduced Order Modeling
 github_username: ToBlick
 
-url: "https://ToBlick.github.io/"
-url_home: "home/"
+url: "https://ToBlick.github.io"
+url_home: "/home/"
 #search: true
 
 # Build settings
