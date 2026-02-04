@@ -28,7 +28,6 @@ The MRX [code](https://github.com/ToBlick/MRX) is easy to use -- just clone and 
   <img src="/assets/images/projects/mrx-teaser.gif" alt="Magnetic relaxation with islands" style="height: 200px;">
 </p>
 
-
 ---
 
 ## Paper
