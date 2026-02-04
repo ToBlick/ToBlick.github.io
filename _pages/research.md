@@ -143,7 +143,7 @@ classes: wide
 <div class="project-card">
   <div class="project-thumb">
     <a href="/projects/optimal-transport/">
-      <div class="placeholder-img mor">Optimal Transport<br>Registration</div>
+      <img src="/assets/images/projects/ot-teaser.png" alt="Optimal Transport">
     </a>
   </div>
   <div class="project-info">
