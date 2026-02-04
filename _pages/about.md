@@ -3,6 +3,20 @@ permalink: /about/
 title: "About"
 ---
 
-Tempor velit sint sunt ipsum tempor enim ad qui ullamco. Est dolore anim ad velit duis dolore minim sunt aliquip amet commodo labore. Ut eu pariatur aute ea aute excepteur laborum. Esse ea esse excepteur minim mollit qui cillum excepteur ex dolore magna. Labore deserunt fugiat incididunt incididunt sint ea. Consequat dolore aute laboris quis proident quis non et est consectetur ex eiusmod sit culpa.
+Tobias Blickhan\
+Courant Institute of Mathematical Sciences\
+New York University\
+251 Mercer Street\
+New York, NY 10012, USA
 
-Cupidatat ea do et in excepteur in. Ad nostrud ut est esse eu duis ea sunt eiusmod. Aliquip tempor veniam sint elit fugiat. Velit incididunt laboris amet incididunt labore dolore irure velit excepteur commodo deserunt laborum. Consectetur eu fugiat veniam veniam Lorem labore magna eiusmod. Ea occaecat reprehenderit pariatur consectetur minim labore ut aliquip.
+Email: tobias.blickhan@gmail.com
+
+* * *
+
+The content of this website is created by me, Tobias Blickhan, and does not necessarily reflect the opinion of my employer.
+
+The content of this website has been compiled with care and to the best of my knowledge. However, I cannot assume any liability for the up-to-dateness, completeness or accuracy of the pages.
+
+This website contains links to the websites of third parties ("external links"). As the content of these websites is not under my control, I cannot assume any liability for such external content.
+
+This website is hosted by GitHub. Please refer to their privacy statement for further legal information.

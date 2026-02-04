@@ -13,28 +13,30 @@
 # you will see them accessed via {{ site.title }}, {{ site.email }}, and so on.
 # You can create any custom variable you would like, and they will be accessible
 # in the templates via {{ site.myvariable }}.
-title: MM
-email:
+title: Tobias Blickhan
+email: tobias.blickhan@gmail.com
 description: >- # this means to ignore newlines until "baseurl:"
-  Write an awesome description for your new site here. You can edit this
-  line in _config.yml. It will appear in your document head meta (for
-  Google search results) and in your feed.xml site description.
-twitter_username: username
-github_username: username
-minimal_mistakes_skin: default
-search: true
+  Computational Methods for PDEs, Structure-Preserving Numerics, Reduced Order Modeling
+github_username: ToBlick
+
+url: "https://ToBlick.github.io/"
+#search: true
 
 # Build settings
 markdown: kramdown
 remote_theme: mmistakes/minimal-mistakes
+minimal_mistakes_skin: "default"
+minimal_mistakes_skin2: "dark"
 # Outputting
-permalink: /:categories/:title/
-paginate: 5 # amount of posts to show
-paginate_path: /page:num/
+permalink: /_pages/home/
+#paginate: 5 # amount of posts to show
+#paginate_path: /page:num/
 timezone: # https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 
 include:
   - _pages
+  - assets
+  - projects
 
 # Exclude from processing.
 # The following items will not be processed, by default. Create a custom list
@@ -50,42 +52,32 @@ include:
 
 # Plugins (previously gems:)
 plugins:
-  - jekyll-paginate
+#  - jekyll-paginate
   - jekyll-sitemap
   - jekyll-gist
-  - jekyll-feed
   - jemoji
   - jekyll-include-cache
 
 author:
-  name   : "First Lastname"
-  avatar : "/assets/images/bio-photo.jpg"
-  bio    : "My awesome biography constrained to a sentence or two goes here."
+  name   : "Tobias Blickhan"
+  avatar : "/assets/images/profile_with_bird.jpeg"
+  # bio    : "Computational Methods for PDEs, Structure-Preserving Numerics, Reduced Order Modeling"
   links:
-    - label: "Website"
+    - label: "Courant Institute"
       icon: "fas fa-fw fa-link"
-      url: "https://"
-    - label: "Twitter"
-      icon: "fab fa-fw fa-twitter-square"
-      url: "https://twitter.com/"
+      url: "https://cims.nyu.edu/"
+    - label: "Email"
+      icon: "fas fa-fw fa-envelope-square"
+      url: "mailto:tobias.blickhan@gmail.com"
+    - label: "Google Scholar"  
+      icon: "ai ai-google-scholar"
+      url: "https://scholar.google.com/citations?user=00ipvAoAAAAJ"
+    - label: "ArXiv"  
+      icon: "ai ai-arxiv"
+      url: "https://arxiv.org/search/?searchtype=author&query=Blickhan%2C+T"
     - label: "GitHub"
       icon: "fab fa-fw fa-github"
-      url: "https://github.com/"
-    - label: "Instagram"
-      icon: "fab fa-fw fa-instagram"
-      url: "https://instagram.com/"
-
-footer:
-  links:
-    - label: "Twitter"
-      icon: "fab fa-fw fa-twitter-square"
-      url: "https://twitter.com/"
-    - label: "GitHub"
-      icon: "fab fa-fw fa-github"
-      url: "https://github.com/"
-    - label: "Instagram"
-      icon: "fab fa-fw fa-instagram"
-      url: "https://instagram.com/"
+      url: "https://github.com/ToBlick"
 
 defaults:
   # _posts
@@ -95,10 +87,6 @@ defaults:
     values:
       layout: single
       author_profile: true
-      read_time: true
-      comments: true
-      share: true
-      related: true
   # _pages
   - scope:
       path: "_pages"
@@ -106,10 +94,3 @@ defaults:
     values:
       layout: single
       author_profile: true
-
-category_archive:
-  type: liquid
-  path: /categories/
-tag_archive:
-  type: liquid
-  path: /tags/
