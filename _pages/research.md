@@ -105,7 +105,7 @@ classes: wide
 <div class="project-card">
   <div class="project-thumb">
     <a href="/projects/magnetic-relaxation/">
-      <div class="placeholder-img plasma">Magnetic<br>Relaxation</div>
+      <img src="/assets/images/projects/mrx-teaser.png" alt="Magnetic Relaxation">
     </a>
   </div>
   <div class="project-info">
@@ -115,8 +115,8 @@ classes: wide
       In fusion devices, finding magnetohydrostatic equilibria is crucial for design and operation. Standard methods assume nested flux surfaces, but real configurations feature magnetic islands and chaotic regions. We developed <strong>MRX</strong>, a magnetic relaxation code using structure-preserving finite elements in JAX that can compute general equilibria on GPUs—enabling PDE-constrained optimization for stellarator design.
     </div>
     <div class="project-links">
-      <a href="/projects/magnetic-relaxation/">Learn More</a>
-      <a href="https://arxiv.org/abs/2510.26986">Paper</a>
+      <a href="/projects/magnetic-relaxation/">Project page</a>
+      <a href="https://arxiv.org/abs/2510.26986">MRX preprint</a>
     </div>
   </div>
 </div>
@@ -124,7 +124,7 @@ classes: wide
 <div class="project-card">
   <div class="project-thumb">
     <a href="/projects/population-dynamics/">
-      <div class="placeholder-img ml">Population<br>Dynamics</div>
+      <img src="/assets/images/projects/ngif-teaser.gif" alt="Population Dynamics">
     </a>
   </div>
   <div class="project-info">
@@ -134,9 +134,9 @@ classes: wide
       Instead of inferring dynamics of individual stochastic trajectories, we consider the evolution of <em>populations</em>—distributions over many realizations. This leads to deterministic continuity equations. We exploit gauge freedom to find velocity fields minimizing kinetic energy, with connections to optimal transport. Our methods <strong>DICE</strong> and <strong>Higher-Order Action Matching</strong> (NeurIPS 2024) dramatically improve training stability.
     </div>
     <div class="project-links">
-      <a href="/projects/population-dynamics/">Learn More</a>
-      <a href="https://arxiv.org/abs/2507.05107">DICE</a>
-      <a href="https://arxiv.org/abs/2410.12000">NeurIPS</a>
+      <a href="/projects/population-dynamics/">Project page</a>
+      <a href="https://arxiv.org/abs/2507.05107">DICE preprint</a>
+      <a href="https://proceedings.neurips.cc/paper_files/paper/2024/file/6782c18960808848174cfe60742b415a-Paper-Conference.pdf">NeurIPS paper</a>
     </div>
   </div>
 </div>
@@ -154,7 +154,7 @@ classes: wide
       Reduced basis methods struggle with advection-dominated problems where solutions exhibit moving features. We propose registration methods using <strong>Linear Optimal Transport</strong> and <strong>Wasserstein barycenters</strong> to align solution snapshots before building reduced bases. This dramatically improves approximation quality for Vlasov-Poisson equations and porous media flows.
     </div>
     <div class="project-links">
-      <a href="/projects/optimal-transport/">Learn More</a>
+      <a href="/projects/optimal-transport/">Project page</a>
       <a href="https://doi.org/10.1137/23M1570715">SISC Paper</a>
     </div>
   </div>

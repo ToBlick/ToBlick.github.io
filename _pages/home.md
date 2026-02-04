@@ -19,16 +19,15 @@ Before joining NYU, I completed my PhD at the [Technische Universität München]
 Research interests:
 ==================
 
-1. **Computational plasma physics**
+* **Computational plasma physics**
 	+ Magnetohydrodynamic equilibrium solvers
-	+ Structure-preserving discretizations
+	+ Structure-preserving finite elements
+	+ Differentiable programming for physics simulations
 
-1. **Model order reduction**
+* **Scientific machine learning**
+	+ Generative models for physics systems
+	+ Population dynamics inference
+
+* **Model order reduction**
 	+ Reduced basis methods for advection-dominated problems
 	+ Optimal transport methods
-	+ Parametric model reduction
-
-1. **Scientific machine learning**
-	+ Generative models for dynamical systems
-	+ Population dynamics inference
-	+ Differentiable programming for physics simulations

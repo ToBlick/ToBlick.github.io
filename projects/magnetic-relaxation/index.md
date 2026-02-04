@@ -6,21 +6,15 @@ author_profile: true
 classes: wide
 ---
 
-# Magnetic Relaxation for MHD Equilibria
-
-**Authors:** [Tobias Blickhan](https://toblick.github.io), Julianne Stratton, [Alan A. Kaptanoglu](https://wp.nyu.edu/courantinstituteofmathematicalsciences-alankaptanoglu/)  
-**Affiliation:** New York University
-
-[📄 arXiv](https://arxiv.org/abs/2510.26986) | [📊 Poster](/assets/pdfs/MRX_APS_DPP_2025.pdf) | [💻 Code](https://github.com/ToBlick/MRX)
+[📄 MRX on arXiv](https://arxiv.org/abs/2510.26986) | [📊 Poster](/assets/pdfs/MRX_APS_DPP_2025.pdf) | [💻 Code](https://github.com/ToBlick/MRX)
 
 ---
 
 ## Overview
 
-In a fusion device operating near steady state, the plasma can be modeled as being in magnetohydrostatic (MHS) equilibrium. Finding such equilibria is crucial for designing and operating fusion devices. The equilibrium configuration determines properties such as stability and confinement, and reconstruction of equilibria from diagnostic measurements is essential for control decisions.
+In a fusion device operating near steady state, the plasma can be modeled as being in magnetohydrostatic (MHS) equilibrium. Finding such equilibria is crucial for designing and operating fusion devices. The equilibrium configuration determines properties such as stability and confinement, and reconstruction of equilibria from diagnostic measurements is essential for control.
 
-<!-- Add teaser image when available -->
-![MHS Equilibrium](/assets/images/projects/mrx-teaser.jpg "Magnetic equilibrium with islands")
+![MHS Equilibrium](/assets/images/projects/mrx-teaser.png "Magnetic equilibrium with islands")
 
 ---
 
@@ -62,7 +56,7 @@ Our method can compute equilibria with:
 - **Preservation of constraints**: Magnetic helicity and divergence-free condition maintained to desired precision
 
 <!-- Add results images/videos when available -->
-![Results Gallery](/assets/images/projects/mrx-results.jpg "Stellarator equilibrium examples")
+<!-- ![Results Gallery](/assets/images/projects/mrx-results.jpg "Stellarator equilibrium examples")-->
 
 ---
 
@@ -81,7 +75,7 @@ By implementing our solver in JAX, we leverage automatic differentiation to comp
 ## Paper
 
 **MRX: A Differentiable 3D MHD Equilibrium Solver Without Nested Flux Surfaces**  
-T. Blickhan, J. Stratton, A. A. Kaptanoglu  
+T. Blickhan, J. Stratton, [A. A. Kaptanoglu](https://wp.nyu.edu/courantinstituteofmathematicalsciences-alankaptanoglu/)  
 *Submitted to Physical Review X*
 
 [📄 Read on arXiv](https://arxiv.org/abs/2510.26986) | [📊 View Poster](/assets/pdfs/MRX_APS_DPP_2025.pdf)

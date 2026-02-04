@@ -1,16 +1,9 @@
 ---
-title: "Optimal Transport Registration"
+title: "Optimal Transport Methods for Model Reduction"
 permalink: /projects/optimal-transport/
 layout: single
 author_profile: true
 classes: wide
----
-
-# Optimal Transport Registration for Model Reduction
-
-**Author:** [Tobias Blickhan](https://toblick.github.io)  
-**Affiliation:** Max Planck Institute for Plasma Physics / TU München
-
 ---
 
 ## Overview
