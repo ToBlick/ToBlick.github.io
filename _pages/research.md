@@ -20,7 +20,8 @@ classes: wide
 .project-thumb img {
   width: 250px;
   height: 160px;
-  object-fit: cover;
+  object-fit: contain;
+  background: #f8f8f8;
   border: 1px solid #ddd;
   border-radius: 6px;
 }

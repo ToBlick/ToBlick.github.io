@@ -14,7 +14,7 @@ Reduced basis methods struggle with advection-dominated problems where solutions
 
 We propose registration methods based on Optimal Transport that align solution snapshots before building the reduced basis, dramatically improving approximation quality.
 
-Given a reference measure $\mu_0$ and a family of measures $(\mu_\theta)_\theta$, the Monge embedding maps each $\mu_\theta$ to the optimal transport map $T_\theta$ pushing $\mu_0$ to $\mu_\theta$. These maps live in a linear space, allowing us to use linear reduction (i.e. POD) on the tangent space of the Wasserstein manifold. With that, we obtain a small set of transport modes that can be used to approximate new solutions.
+Given a reference measure $\mu_0$ and a family of measures $\mu_\theta$, $\theta \in \Theta$, the Monge embedding maps each $\mu_\theta$ to the optimal transport map $T_\theta$ pushing $\mu_0$ to $\mu_\theta$. These maps live in a linear space, allowing us to use linear reduction (i.e. POD) on the tangent space of the Wasserstein manifold. With that, we obtain a small set of transport modes that can be used to approximate new solutions.
 
 
 <p style="text-align: center;">
