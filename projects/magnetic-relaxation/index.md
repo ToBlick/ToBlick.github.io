@@ -14,7 +14,7 @@ classes: wide
 
 In a fusion device operating near steady state, the plasma can be modeled as being in magnetohydrostatic (MHS) equilibrium. Finding such equilibria is crucial for designing and operating fusion devices. The equilibrium configuration determines properties such as stability and confinement, and reconstruction of equilibria from diagnostic measurements is essential for control.
 
-![MHS Equilibrium](/assets/images/projects/mrx-teaser.png "Magnetic equilibrium with islands")
+![MHS Equilibrium](/assets/images/projects/mrx-teaser.gif "Magnetic equilibrium with islands")
 
 ---
 

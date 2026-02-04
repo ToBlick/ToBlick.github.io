@@ -99,18 +99,17 @@ classes: wide
 }
 </style>
 
-# Current Research Projects
 * * *
 
 <div class="project-card">
   <div class="project-thumb">
     <a href="/projects/magnetic-relaxation/">
-      <img src="/assets/images/projects/mrx-teaser.png" alt="Magnetic Relaxation">
+      <img src="/assets/images/projects/mrx-teaser.gif" alt="Magnetic Relaxation">
     </a>
   </div>
   <div class="project-info">
     <div class="project-title"><a href="/projects/magnetic-relaxation/">Magnetic Relaxation for MHD Equilibria</a></div>
-    <div class="project-collab">with A. Kaptanoglu (NYU) and J. Stratton (PhD student, NYU)</div>
+    <!-- <div class="project-collab">with J. Stratton and A. Kaptanoglu</div> -->
     <div class="project-desc">
       In fusion devices, finding magnetohydrostatic equilibria is crucial for design and operation. Standard methods assume nested flux surfaces, but real configurations feature magnetic islands and chaotic regions. We developed <strong>MRX</strong>, a magnetic relaxation code using structure-preserving finite elements in JAX that can compute general equilibria on GPUs—enabling PDE-constrained optimization for stellarator design.
     </div>
@@ -129,7 +128,7 @@ classes: wide
   </div>
   <div class="project-info">
     <div class="project-title"><a href="/projects/population-dynamics/">Population Dynamics Inference</a></div>
-    <div class="project-collab">with J. Berman, B. Peherstorfer, and A. Stuart</div>
+    <!-- <div class="project-collab">with J. Berman, B. Peherstorfer, and A. Stuart</div> -->
     <div class="project-desc">
       Instead of inferring dynamics of individual stochastic trajectories, we consider the evolution of <em>populations</em>—distributions over many realizations. This leads to deterministic continuity equations. We exploit gauge freedom to find velocity fields minimizing kinetic energy, with connections to optimal transport. Our methods <strong>DICE</strong> and <strong>Higher-Order Action Matching</strong> (NeurIPS 2024) dramatically improve training stability.
     </div>
@@ -149,7 +148,7 @@ classes: wide
   </div>
   <div class="project-info">
     <div class="project-title"><a href="/projects/optimal-transport/">Optimal Transport Registration for Model Reduction</a></div>
-    <div class="project-collab">PhD research at Max Planck Institute for Plasma Physics</div>
+    <!-- <div class="project-collab">PhD research at Max Planck Institute for Plasma Physics</div> -->
     <div class="project-desc">
       Reduced basis methods struggle with advection-dominated problems where solutions exhibit moving features. We propose registration methods using <strong>Linear Optimal Transport</strong> and <strong>Wasserstein barycenters</strong> to align solution snapshots before building reduced bases. This dramatically improves approximation quality for Vlasov-Poisson equations and porous media flows.
     </div>
