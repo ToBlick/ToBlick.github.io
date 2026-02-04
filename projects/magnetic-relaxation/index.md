@@ -24,7 +24,9 @@ Magnetic relaxation provides an opportunity to solve for very general equilibriu
 
 The MRX [code](https://github.com/ToBlick/MRX) is easy to use -- just clone and `pip install` it!
 
-<img src="/assets/images/projects/mrx-teaser.gif" alt="Magnetic relaxation with islands" style="height: 120px;">
+<p style="text-align: center;">
+  <img src="/assets/images/projects/mrx-teaser.gif" alt="Magnetic relaxation with islands" style="height: 200px;">
+</p>
 
 
 ---

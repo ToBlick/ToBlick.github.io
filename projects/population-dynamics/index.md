@@ -10,19 +10,17 @@ classes: wide
 
 ---
 
-Stochastic dynamical systems present notorious challenges for model order reduction. We propose a change of perspective: instead of inferring governing dynamics of a single system $X_t$, we consider the evolution of a **population** of such systems—the distribution of states over many realizations:
+Stochastic dynamical systems present notorious challenges for model order reduction. We propose a change of perspective: instead of inferring governing dynamics of a single system $X_t$, we consider the evolution of a **population** of such systems—the distribution of states over many realizations: $X_t \sim \rho_t$.
 
-$$X_t \sim \rho_t$$
-
-This distribution evolves according to a deterministic equation:
-
-$$\partial_t \rho(t) = \text{div}(\rho_t u_t)$$
+This distribution evolves according to a deterministic equation: $\partial_t \rho(t) = \text{div}(\rho_t u_t)$, where $u_t$ is a velocity field.
 
 The task is to infer the velocity field $u_t$ that governs this evolution. 
 
 Different trajectory dynamics can give rise to the same population dynamics. This means there are infinitely many velocity fields $u_t$ that are *compatible* with observed data. We exploit this gauge freedom to find velocity fields that minimize kinetic energy or other selection criteria.
 
-<img src="/assets/images/projects/ngif-teaser.gif" alt="Population Evolution" style="height: 120px;">
+<p style="text-align: center;">
+  <img src="/assets/images/projects/ngif-teaser.gif" alt="Population Evolution" style="height: 200px;">
+</p>
 
 This work is related to generative modeling algorithms like score-based diffusion models and stochastic interpolants. In generative modeling, only the beginning and end of the path $t \mapsto \rho_t$ are given. Our framework provides a more constrained setting where generated samples collectively adhere to a physically meaningful path.
 

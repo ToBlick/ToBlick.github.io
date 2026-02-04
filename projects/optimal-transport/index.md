@@ -6,7 +6,7 @@ author_profile: true
 classes: wide
 ---
 
-[📄 Registration paper](https://epubs.siam.org/doi/epdf/10.1137/23M1570715) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
+[📄 Registration paper](https://arxiv.org/abs/2303.07328) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
 
 ---
 
@@ -14,10 +14,12 @@ Reduced basis methods struggle with advection-dominated problems where solutions
 
 We propose registration methods based on Optimal Transport that align solution snapshots before building the reduced basis, dramatically improving approximation quality.
 
-Given a reference measure $\mu_0$ and a family of measures $\{\mu_\theta\}_\theta$, the Monge embedding maps each $\mu_\theta$ to the optimal transport map $T_\theta$ pushing $\mu_0$ to $\mu_\theta$. These maps live in a linear space, allowing us to use linear reduction (i.e. POD) on the tangent space of the Wasserstein manifold. With that, we obtain a small set of transport modes that can be used to approximate new solutions.
+Given a reference measure $\mu_0$ and a family of measures $(\mu_\theta)_\theta$, the Monge embedding maps each $\mu_\theta$ to the optimal transport map $T_\theta$ pushing $\mu_0$ to $\mu_\theta$. These maps live in a linear space, allowing us to use linear reduction (i.e. POD) on the tangent space of the Wasserstein manifold. With that, we obtain a small set of transport modes that can be used to approximate new solutions.
 
 
-<img src="/assets/images/projects/ot-tangentspace.png" alt="Linear Optimal Transport" style="height: 120px;">
+<p style="text-align: center;">
+  <img src="/assets/images/projects/ot-tangentspace.png" alt="Linear Optimal Transport" style="height: 200px;">
+</p>
 
 ---
 
@@ -28,7 +30,7 @@ Given a reference measure $\mu_0$ and a family of measures $\{\mu_\theta\}_\thet
 **T. Blickhan**  
 *SIAM Journal on Scientific Computing, 2024*
 
-[📄 Paper](https://doi.org/10.1137/23M1570715) | [📄 arXiv](https://arxiv.org/abs/2303.07328)
+[📄 Paper](https://doi.org/10.1137/23M1570715) | [📄 arXiv](https://arxiv.org/abs/2303.07328) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
 
 We provide a principled way to "align" solution snapshots, making them amenable to standard linear reduction techniques.
 
