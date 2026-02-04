@@ -8,3 +8,11 @@ search: false
 @import "minimal-mistakes/skins/{{ site.minimal_mistakes_skin | default: 'default' }}"; // skin
 @import "minimal-mistakes"; // main partials
 
+// Make author profile avatar larger
+.author__avatar {
+  img {
+    max-width: 200px;  // default is ~110px
+    border-radius: 50%;
+  }
+}
+

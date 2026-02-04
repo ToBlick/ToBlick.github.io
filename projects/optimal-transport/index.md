@@ -6,21 +6,18 @@ author_profile: true
 classes: wide
 ---
 
-## Overview
+[📄 Registration paper](https://epubs.siam.org/doi/epdf/10.1137/23M1570715) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
 
-Reduced basis methods struggle with **advection-dominated problems** where solutions exhibit moving features (shocks, fronts, traveling waves). Standard linear approximation methods fail to capture these dynamics efficiently because the solution manifold has high Kolmogorov n-width.
+---
 
-We propose registration methods based on **Optimal Transport** that align solution snapshots before building the reduced basis, dramatically improving approximation quality.
+Reduced basis methods struggle with advection-dominated problems where solutions exhibit moving features (shocks, fronts, traveling waves). Standard linear approximation methods fail to capture these dynamics efficiently because the solution manifold has high Kolmogorov n-width.
+
+We propose registration methods based on Optimal Transport that align solution snapshots before building the reduced basis, dramatically improving approximation quality.
+
+Given a reference measure $\mu_0$ and a family of measures $\{\mu_\theta\}_\theta$, the Monge embedding maps each $\mu_\theta$ to the optimal transport map $T_\theta$ pushing $\mu_0$ to $\mu_\theta$. These maps live in a linear space, allowing us to use linear reduction (i.e. POD) on the tangent space of the Wasserstein manifold. With that, we obtain a small set of transport modes that can be used to approximate new solutions.
 
 
-Given a reference measure $\mu_0$ and a family of measures $\{\mu_\theta\}_\theta$, the Monge embedding maps each $\mu_\theta$ to the optimal transport map $T_\theta$ pushing $\mu_0$ to $\mu_\theta$.
-
-This embedding:
-- **Linearizes** the Wasserstein space locally
-- Enables **PCA-like** dimensionality reduction  
-- Preserves **transport structure**
-
-![Monge Embedding Method](/assets/images/projects/ot-tangentspace.png "Linear Optimal Transport embedding visualization")
+<img src="/assets/images/projects/ot-tangentspace.png" alt="Linear Optimal Transport" style="height: 120px;">
 
 ---
 

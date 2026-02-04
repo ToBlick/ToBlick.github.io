@@ -46,7 +46,7 @@ DOI: [10.1137/23M1570715](https://doi.org/10.1137/23M1570715)
 B. Battisti, **T. Blickhan**, G. Enchery, V. Ehrlacher, D. Lombardi, O. Mula  
 *ESAIM: Proceedings and Surveys, 2023*
 
-[📄 Paper](https://doi.org/10.1051/proc/202373028) | [📄 arXiv](https://arxiv.org/abs/2205.02721)
+[📄 Project Page](/projects/optimal-transport/) | [📄 Paper](https://doi.org/10.1051/proc/202373028) | [📄 arXiv](https://arxiv.org/abs/2205.02721)
 
 DOI: [10.1051/proc/202373028](https://doi.org/10.1051/proc/202373028)
 
