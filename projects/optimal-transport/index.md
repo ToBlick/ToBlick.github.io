@@ -27,7 +27,7 @@ Given a reference measure $\mu_0$ and a family of measures $(\mu_\theta)_\theta$
 
 ### A Registration Method for Reduced Basis Problems Using Linear Optimal Transport
 
-**T. Blickhan**  
+Tobias Blickhan 
 *SIAM Journal on Scientific Computing, 2024*
 
 [📄 Paper](https://doi.org/10.1137/23M1570715) | [📄 arXiv](https://arxiv.org/abs/2303.07328) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
@@ -36,7 +36,7 @@ We provide a principled way to "align" solution snapshots, making them amenable 
 
 ### Wasserstein Model Reduction Approach for Parametrized Flow Problems in Porous Media
 
-B. Battisti, **T. Blickhan**, G. Enchery, V. Ehrlacher, D. Lombardi, O. Mula  
+[Beatrice Battisti](https://beatricebattisti.github.io), Tobias Blickhan, [Guillaume Enchery](http://guillaume.enchery.free.fr), [Virginie Ehrlacher](https://team.inria.fr/matherials/team-members/virginie-ehrlacher-galland/), [Damiano Lombardi](https://team.inria.fr/commedia/lombardi/), [Olga Mula](https://omula.gitlab.io)
 *ESAIM: Proceedings and Surveys, 2023*
 
 [📄 Paper](https://doi.org/10.1051/proc/202373028) | [📄 arXiv](https://arxiv.org/abs/2205.02721)

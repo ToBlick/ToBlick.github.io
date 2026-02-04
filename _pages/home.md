@@ -6,7 +6,7 @@ author_profile: true
 classes: wide
 ---
 
-I am a Faculty Fellow at the [Courant Institute of Mathematical Sciences](https://cims.nyu.edu/) at New York University in the [group of Ben Peherstorfer](https://cims.nyu.edu/~pehersto/group.html). 
+Hi! I am a Faculty Fellow at the [Courant Institute of Mathematical Sciences](https://cims.nyu.edu/) at New York University in the [group of Ben Peherstorfer](https://cims.nyu.edu/~pehersto/group.html). 
 
 I am working on computational methods for partial differential equations. This includes structure-preserving numerical methods for plasma physics applications and reduced order modeling to accelerate the solution of parametrized partial differential equations in multi-query contexts.
 
