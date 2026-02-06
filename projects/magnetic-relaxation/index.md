@@ -34,7 +34,6 @@ The MRX [code](https://github.com/ToBlick/MRX) is easy to use -- just clone and 
 
 **MRX: A Differentiable 3D MHD Equilibrium Solver Without Nested Flux Surfaces**  
 T. Blickhan, J. Stratton, [A. A. Kaptanoglu](https://wp.nyu.edu/courantinstituteofmathematicalsciences-alankaptanoglu/)  
-*Submitted to Physical Review X*
 
 [📄 Read on arXiv](https://arxiv.org/abs/2510.26986) | [📊 View Poster](/assets/pdfs/MRX_APS_DPP_2025.pdf)
 

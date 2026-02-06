@@ -30,8 +30,7 @@ This work is related to generative modeling algorithms like score-based diffusio
 
 ### DICE: Discrete Inverse Continuity Equation for Learning Population Dynamics
 
-Tobias Blickhan, [Jules Berman](https://julesberman.github.io), [Andrew Stuart](https://www.cms.caltech.edu/people/astuart), [Benjamin Peherstorfer](https://cims.nyu.edu/~pehersto/)  
-*Submitted to Journal of Machine Learning Research*
+Tobias Blickhan, [Jules Berman](https://julesberman.github.io), [Andrew Stuart](https://www.cms.caltech.edu/people/astuart), [Benjamin Peherstorfer](https://cims.nyu.edu/~pehersto/)
 
 [📄 arXiv](https://arxiv.org/abs/2507.05107)
 
