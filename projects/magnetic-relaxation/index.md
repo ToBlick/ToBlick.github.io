@@ -6,7 +6,7 @@ author_profile: true
 classes: wide
 ---
 
-[📄 MRX paper (PDF)](/assets/pdfs/MRX_paper.pdf) | [📄 Boundary specification on arXiv](https://arxiv.org/abs/2605.01652) | [💻 Code](https://github.com/ToBlick/MRX)
+[📄 MRX paper (PDF)](/assets/pdfs/MRX_paper.pdf) | [📄 Boundary preprint](https://arxiv.org/abs/2605.01652) | [💻 Code](https://github.com/ToBlick/MRX)
 <!-- [📄 MRX on arXiv](https://arxiv.org/abs/2510.26986) -->
 
 ---

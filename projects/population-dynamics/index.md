@@ -6,7 +6,7 @@ author_profile: true
 classes: wide
 ---
 
-[📄 TPF on arXiv](https://arxiv.org/abs/2605.26285) | [📄 Stochastic Lifting on arXiv](https://arxiv.org/abs/2605.29194) | [📄 NGIF on arXiv](https://arxiv.org/abs/2605.25107) | [📄 DICE on arXiv](https://arxiv.org/abs/2507.05107) | [📄 NeurIPS 2024 Paper](https://papers.nips.cc/paper_files/paper/2024/file/6782c18960808848174cfe60742b415a-Paper-Conference.pdf)
+[📄 TPF paper](https://arxiv.org/abs/2605.26285) | [📄 Stochastic paper](https://arxiv.org/abs/2605.29194) | [📄 NGIF paper](https://arxiv.org/abs/2605.25107) | [📄 DICE preprint](https://arxiv.org/abs/2507.05107) | [📄 HOAM preprint](https://papers.nips.cc/paper_files/paper/2024/file/6782c18960808848174cfe60742b415a-Paper-Conference.pdf)
 
 ---
 

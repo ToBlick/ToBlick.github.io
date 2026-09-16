@@ -6,7 +6,7 @@ author_profile: true
 classes: wide
 ---
 
-[📄 Registration paper](https://arxiv.org/abs/2303.07328) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
+[📄 OT-RB paper](https://arxiv.org/abs/2303.07328) | [💻 Code](https://github.com/ToBlick/OptimalMappings.jl)
 
 ---
 
