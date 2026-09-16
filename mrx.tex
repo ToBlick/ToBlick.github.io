@@ -1,0 +1,1753 @@
+\documentclass[%
+ reprint,
+ superscriptaddress,
+ amsmath,amssymb,
+ aps, nofootinbib, floatfix]{revtex4-2}
+
+% --- Language & Encoding ---
+\usepackage[english]{babel}
+\renewcommand{\selectlanguage}[1]{} % Fix for Babel/REVTeX conflict
+
+% --- Math Packages ---
+\usepackage{mathtools} % Includes amsmath functionality
+\usepackage{amsthm}
+\usepackage{bm}
+\usepackage{mathrsfs}
+% \mathtoolsset{showonlyrefs, showmanualtags}
+
+% --- Tables & Layout ---
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{array}
+
+% --- Graphics & Visualization ---
+\usepackage{graphicx}
+\graphicspath{{figs/pgf_li383/}}
+\usepackage{pgf}
+\usepackage{tikz}
+
+% --- Captions ---
+\usepackage{caption}
+\usepackage{subcaption}
+
+% --- Utilities ---
+\usepackage{xcolor}
+
+% --- Hyperlinks (Loaded last to avoid driver conflicts) ---
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdfpagemode=FullScreen,
+    }
+\urlstyle{same}
+\usepackage{footnote} 
+
+% --- Custom Settings & Commands ---
+\interfootnotelinepenalty=10000
+
+\renewcommand{\thesection}{\arabic{section}}
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
+\makeatletter
+\renewcommand{\p@subsection}{}
+\renewcommand{\p@subsubsection}{}
+\makeatother
+
+\input{commands.tex}
+
+\begin{document}
+
+\title{MRX: A differentiable 3D MHD equilibrium solver without nested flux surfaces}
+% \texorpdfstring{\\}{ }Part I: structure-preservation and computational scaling}
+
+\author{Tobias Blickhan}
+ \email{tobias.blickhan@nyu.edu}
+ \affiliation{Courant Institute of Mathematical Sciences, New York University
+ % , New York, NY 10012, USA
+ }
+
+\author{Julianne Stratton}
+ \affiliation{Courant Institute of Mathematical Sciences, New York University
+ % , New York, NY 10012, USA
+ }
+
+\author{Alan A. Kaptanoglu}
+ \affiliation{Courant Institute of Mathematical Sciences, New York University
+ % , New York, NY 10012, USA
+ }
+ \affiliation{William E. Boeing Department of Aeronautics and Astronautics, University of Washington
+ % , Seattle, WA 98195, USA
+ }
+
+%% Abstract
+\begin{abstract}
+    This article introduces a new 3D magnetohydrodynamic (MHD) equilibrium solver, MRX, based on relaxation of a magnetic field to a lower energy equilibrium state via admissible variations. We describe the mathematical theory behind this method and discuss what can be transferred to the fully discrete setting of a relaxation code. Our code is designed to address a number of traditional challenges to 3D MHD equilibrium solvers: enforcing physical constraints such as divergence-free magnetic field, high-order convergence, handling strongly shaped polar geometries, and controlling topology changes of the magnetic field. Building on the JAX framework, we address questions of computational efficiency on modern computing architectures, user accessibility, and differentiability at each step. The solver is verified on manufactured vacuum solutions and against a VMEC equilibrium of a quasi-axisymmetric stellarator.
+    It is further demonstrated on a finite-$\beta$ NCSX configuration, where we study $h$ and $p$ refinement, preservation of helicity, reconnection events and seeded island chains. 
+    Finally, an inexact Newton method enables the computation of high-resolution finite-$\beta$ equilibria with islands and chaos in minutes on a single GPU.
+\end{abstract}
+
+\maketitle
+% \linenumbers   % line numbering off (clashes with \captionof under TeX Live >= 2023)
+
+\onecolumngrid
+\begin{center}
+    \includegraphics[width=\linewidth]{figs/figure1_standalone.pdf}
+  \captionof{figure}{Visualization of a non-nested NCSX equilibrium with MRX, colored by rotational transform $\iota$ (left) and normalized pressure (right). Starting from a nested configuration, a large $3/5$ island chain has formed through magnetic reconnection.}
+  \label{figure:ncsx_3d_sections}
+\end{center}
+\twocolumngrid
+
+\section{Introduction}
+\label{sec:introduction}
+Fusion energy offers a promising path for a clean, reliable, and sustainable source of energy to power global infrastructure, but significant challenges remain. The dynamics of plasmas are often modeled by magnetohydrodynamic (MHD) models, which are partial differential equations (PDEs) that treat the plasma as a single fluid.
+
+For many approximately steady-state space and laboratory plasmas, the equilibrium is well-described by the time-independent limit of the MHD equations with zero equilibrium flow. Three-dimensional, static, ideal magnetohydrodynamic equilibrium is given by the force balance equation coupled with Maxwell's equations. 
+
+This constitutes a search for $B: \Domain \to \bR^3$, with a bounded Lipschitz domain $\Domain \subset \bR^3$ such that,
+\begin{align}
+    \label{eq:MHS}
+    J \times B = \grad p, \quad \curl B = J, \quad \dvg B = 0,
+\end{align}
+together with suitable boundary conditions. We will refer to \eqref{eq:MHS} as the magnetohydrostatic (MHS) problem. Throughout this work, we take units so that vacuum permeability $\mu_0 = 1$. Plasma pressure is denoted by $p$.
+
+Fig.~\ref{figure:ncsx_3d_sections} illustrates an equilibrium magnetic field configuration for a stellarator geometry. The 3D geometry leads to a mix of magnetic surfaces and island chains. 
+
+The boundary conditions we use in this work are $B \cdot n = J \times n = 0$ on $\partial \Domain$, where $n$ is the unit vector normal to the boundary. Physically, this means $\partial \Domain$ is a magnetic flux surface in vacuum. MRX handles more general boundary conditions of the form $(B - B_{\mathrm{vac}}) \cdot n = 0$ as well, cf. Sections \ref{sec:manufactured_vacuum_solution} and \ref{sec:future_work}.
+
+In this introduction section, we discuss the applications of the MHS problem in \ref{subsec:applications} and how different assumptions on the magnetic topology affect solution strategies in \ref{subsec:symmetry}, \ref{subsec:nested_flux_surfaces}, and \ref{subsec:magnetic_islands}. We comment on numerical evidence for the existence of three-dimensional equilibria in~\ref{subsec:numerical_evidence_3d}.
+Existing codes are presented in \ref{subsec:existing_codes}, our contributions in \ref{subsec:contributions}, and the outline of the remaining presentation in \ref{sec:outline}.
+
+\subsection{Applications}
+\label{subsec:applications}
+
+It is hard to overstate the importance of computing realistic magnetic equilibria. MHS equilibria form the foundation of the design of magnetic-confinement fusion devices by facilitating: (i) plasma state reconstructions from experimental data~\cite{lao_reconstruction_1985}, (ii) MHD and other stability calculations~\cite{sanchez_cobra_2000}, (iii) neoclassical~\cite{van_rij_variational_1989} and gyrokinetic~\cite{mandell_gx_2024} transport calculations, and (iv) the initialization of extended MHD time-dependent codes such as JOREK3D~\cite{nikulsin_jorek3d_2022}, {M3D-C1}~\cite{jardin_multiple_2012} and {NIMSTELL}~\cite{sovinec_modeling_2024}.
+
+Interpreting and analyzing diagnostic data at every time snapshot requires reconstructing the current state of the equilibrium at each step. 
+Besides computing physical quantities, these reconstructions are crucial for the performance of plasma control systems that are integral to fusion device design. These systems can allow for real-time instability and heat flux control~\cite{goncalves_real-time_2010}. 
+
+\subsection{Symmetry}
+\label{subsec:symmetry}
+
+Finding a solution to~\eqref{eq:MHS} is very challenging analytically and there are open questions about the existence of MHS solutions in toroidal geometry without the assumption of axisymmetry. The Grad conjecture~\citep{grad_toroidal_1967} states that smooth MHS solutions with nested toroidal pressure surfaces can only exist in the presence of symmetry (axial, helical, or by reflection) and remains open \citep[Conjecture 1]{constantin_flexibility_2021}.
+
+An important class of fusion experiments, tokamaks, are based on magnetic confinement in axisymmetric toroidal geometry. In this case, nested flux surfaces are guaranteed, and can be labeled by a magnetic flux function $\psi$. Subsequently, the MHS equation \eqref{eq:MHS} reduces to the Grad-Shafranov equation, a two-dimensional, elliptic, nonlinear partial differential equation. Various reliable solvers for the Grad-Shafranov equation are in use, see~\cite{hansen_tokamaker_2024} and references therein.   
+
+\subsection{Nested flux surfaces}
+\label{subsec:nested_flux_surfaces}
+Toroidal devices without axisymmetry are called stellarators. Nested flux surfaces are not guaranteed in a 3D toroidal volume $\Domain$, and therefore the full 3D equations must be solved.
+%
+Nonetheless, the most commonly used codes to compute stellarator equilibria, such as {VMEC}~\citep{hirshman_steepest-descent_1983, schilling2025numericsvmecpp, Jorge_VMEX_a_differentiable_2026}, {GVEC}~\citep{hindenlang_computing_2025, Hindenlang2026}, and {DESC}~\cite{dudt_desc_2020} assume that nested magnetic flux surfaces exist and therefore the surfaces can be labeled by the toroidal magnetic flux $\psi$. The existence of nested flux surfaces implies the foliation of the plasma volume into nested tori. Magnetic field lines (i.e. integral curves of the vector field $B$) lie on these tori and $\grad p$ is orthogonal to them, as can be seen from taking the dot product $B \cdot (J \times B - \grad p) = 0$.
+
+This implies also that the pressure $p = p_{\mathrm{profile}}(\psi)$ and the rotational transform $\iota = \iota_{\mathrm{profile}}(\psi)$ are flux functions.
+The rotational transform describes the number of poloidal rotations per single toroidal rotation of a magnetic field line. Nested flux surfaces are often a useful assumption because it simplifies the problem, establishes a convenient flux coordinate system, and reflects the expectation that stellarators with good confinement should exhibit large volumes of nested flux surfaces.
+%
+Force balance generally can only hold in a very weak sense, as singular currents will appear at rational values of $\iota_{\mathrm{profile}}(\psi)$~\cite{loizu_magnetic_2015, lazerson_verification_2016}. This will be discussed in detail in Section \ref{subsec:convergence}.
+
+\subsection{Magnetic islands}
+\label{subsec:magnetic_islands}
+
+As stellarator optimization and experiments increasingly scale to more realistic geometries representing fusion-scale devices, there is an increasing need for finding equilibria with islands and chaos. The former are closed tubes (that are non-nested with nearby flux surfaces) formed by magnetic field lines with toroidal geometry, the latter are volume-filling field lines. A five-fold island chain can be seen in Fig.~\ref{figure:ncsx_3d_sections}, near the plasma edge.
+
+Modeling magnetic islands and chaos is important for capturing the dynamics of real experiments, where these features often play a large part in transport and divertor operation~\cite{coelho_global_2022}. The presence of uncontrolled magnetic islands and chaotic regions primarily leads to a decrease in the quality of confinement of the plasma. However, the experimental device Wendelstein-7X is engineered to take advantage of a particular magnetic island chain at its edge, paired with an island divertor to allow for a controlled release of heat from the plasma~\cite{pedersen_confirmation_2016}. Sophisticated design of such island divertors~\cite{feng_understanding_2021} or non-resonant divertors~\cite{boozer_simulation_2018, garcia_exploration_2023} is crucial, as the divertor nominally controls critical device properties including: the large heat fluxes to the material surfaces, impurity fluxes, plasma detachment, helium removal, etc~\cite{janeschitz_iter_1995, kessel_overview_2018}. Resolving island regions can also help to initialize extended time-dependent MHD codes, since the formation of islands is very slow at fusion-relevant resistivity. 
+
+\subsection{Numerical evidence for the existence of 3D toroidal MHD equilibria}
+\label{subsec:numerical_evidence_3d}
+There is substantial numerical and experimental evidence that the three-dimensional toroidal MHD equilibrium landscape is not effectively single-valued. Cooper et al. found both an axisymmetric equilibrium and a spontaneously bifurcated helical-core equilibrium for the same fixed boundary and prescribed pressure and rotational-transform profiles, with comparable MHD energies \cite{Cooper2010HelicalCore}. Panici et al. subsequently recovered both branches with DESC using deflation and force-balance errors below \(1\%\), and also obtained 25 distinct non-axisymmetric near-axis-constrained equilibria that share the same magnetic axis, on-axis transform, and first-order quasisymmetry while differing substantially in magnetic shear and outer geometry \cite{Panici2026Deflation}. For genuinely stellarator-shaped boundaries, Thun et al. constructed continuous families of low-force-residual equilibria at fixed boundary and rotational transform while varying only a pressure multiplier \cite{Thun2026Narrow}, while the MRxMHD variational formulation can provide family of relaxed three-dimensional equilibria selected by regional magnetic helicities, fluxes, and pressure jumps \cite{Hudson2012MRxMHD}. Experimentally, LHD exhibits hysteresis between healed and penetrated magnetic-island states as the resonant field, plasma beta, or poloidal flow is varied, indicating history-dependent long-lived states with different magnetic topology over overlapping parameter ranges \cite{Narushima2015Hysteresis}. Thus, although strict nonuniqueness for identical, fully specified non-axisymmetric stellarator data has not been established generally, the available evidence strongly supports multiple equilibria or long-lived near-equilibria separated by small changes in pressure, helicity-related constraints, topology, or residual force balance. We will illustrate strong numerical evidence for this hypothesis across the results presented in this manuscript.
+
+
+\subsection{Existing 3D MHD equilibrium codes}
+\label{subsec:existing_codes}
+Essentially all 3D MHD equilibrium codes boil down to an optimization problem for minimizing the volume-integrated energy or volume-integrated square of the MHS residual, Equation~\eqref{eq:MHS}.
+
+We have already mentioned a class of 3D MHD equilibrium codes that assume nested flux surfaces. The solution is then determined by the flux coordinate system together with a handful of scalar functions, which becomes the optimization target (c.f. equation \eqref{eq:VMEC_vector_potential}). 
+
+\paragraph{Breaking nested flux surfaces}
+Beyond this class of methods, there are a few other codes that can produce 3D toroidal MHD equilibria with islands, which fall broadly into the class of codes relying on MRxMHD with stepped pressure profiles (SPEC, SPECTRE~\cite{loizu_verification_2016, balkovic2026spectre}), Picard-like fixed point iterations (PIES, HINT~\cite{drevlak_pies_2005, suzuki_development_2006, suzuki_hint_2017}) and magnetic relaxation codes (SIESTA~\cite{hirshman_siesta_2011}, and the MRX code presented here). We give a summary of relevant 3D MHS codes we are aware of in Table~\ref{table:codes}. Some of these codes can perform free-boundary calculations, but the table summary and our focus in this work is on fixed-boundary equilibria.
+
+\begin{table*}[t]
+\caption{Three-dimensional MHD equilibrium codes for stellarator geometry, ordered by year
+of first publication.
+Codes restricted to Cartesian geometry used to study the Parker problem are omitted, such as~\cite{candelaresi_mimetic_2014,
+smiet_ideal_2017, he_topology-preserving_2025, mao2026structure}. Also omitted are codes for time-dependent MHD, e.g. JOREK3D~\cite{nikulsin_jorek3d_2022}, {M3D-C1}~\cite{jardin_multiple_2012} and {NIMSTELL}~\cite{sovinec_modeling_2024}.
+}
+\input{tables/mhs_codes_table}
+\label{table:codes}
+\end{table*}
+
+The MRxMHD stepped pressure approach relies on solving Taylor relaxation problems in nested domains with pressure jumps at the interfaces. It has the advantage of reducing the problem to coupled Beltrami solves, but this is a very different physical model than magnetic relaxation, and convergence with respect to the number of subdomains is generally unclear in 3D toroidal geometry. 
+% Fig. 10a in ~\cite{balkovic2026spectre} clearly exhibits oscillations on the scale of the subdomain width.
+
+The PIES and HINT approaches are general approaches for non-nested equilibria, but each exhibit potential numerical disadvantages. PIES is a Picard iteration on the magnetic field, and such fixed-point schemes converge at a linear rate. In practice this rate degrades and under-relaxation of the current-profile updates is required for stable iteration~\cite{reiman_computation_1990}. A Newton variant of PIES~\cite{oliver_solving_2006} halves the iteration count under the assumption of nested flux surfaces.
+
+HINT instead relaxes artificial dissipative MHD equations toward a steady state, alternating a pressure update at fixed $B$ with a field update at fixed $p$. Since the field is advanced explicitly on an Eulerian grid, a CFL condition limits the step size while the relaxation must run over the much longer dissipative timescale, which is costly.
+
+Out of the relaxation codes, SIESTA is the most similar code to that proposed in this work.
+
+\paragraph{Added flexibility from finite elements}
+Existing codes based on Fourier expansion in the angular variables do not support nonuniform angular meshes. In contrast, finite element (FE) codes can provide nonuniform meshes and local mesh refinement for resolving the small-scale features near magnetic islands (radial refinement) or divertor regions (poloidal refinement), while retaining a coarse representation elsewhere.
+
+\paragraph{Structure preservation}
+Classical magnetic relaxation comes from considering ideal admissible variations that monotonically minimize the energy and preserve the magnetic helicity and topology. However, many relaxation codes such as HINT and SIESTA cannot {numerically} guarantee that the divergence-free field properties and fixed magnetic helicity hold.
+
+This brings into question in what sense numerical convergence is ever truly achieved. As we will discuss in Section~\ref{subsec:convergence}, a perfect discrete representation of the continuous system is infeasible. At the same time, it is essential to have precise control of the approximation and errors made through discretization.
+
+We propose to address this issue, as in recent work~\citep{bressan_2023_relaxation, he_topology-preserving_2025}, by using structure-preserving mixed FE methods.
+
+\subsection{Our contributions}
+\label{subsec:contributions}
+In this work, we present a new numerical code to solve magnetic relaxation problems in realistic geometries using a mixed finite element method built on top of the JAX computational framework.
+
+\paragraph{Goals and scope}
+The eventual goal is to design a new MHD equilibrium solver that can: (1) produce robust 3D MHS solutions with islands and chaos via magnetic relaxation, (2) scale on modern GPUs and provide differentiable objectives, and (3) numerically reflect the relevant structural properties to desired precision by using structure-preserving finite elements.
+
+In this initial work, we propose only to solve the problem where $B \cdot n = 0$ is prescribed on a fixed computational boundary. The focus is on the mathematical properties and convergence of the code. 
+
+We focus on the case of solid toroidal geometry. There are no structural obstacles to transfer this work to arbitrarily-shaped domains, including ones with multiple cavities and tunnels. 
+
+Compared to previous magnetic relaxation methods for MHS, our approach also differs in the way the pressure is treated. We follow here the approach common in the hydrodynamics literature~\citep{moffatt_topological_2021}, cf. Section \ref{sec:pressure}.
+
+\paragraph{Structure preserving finite elements}
+As will be discussed in Section \ref{sec:numerics_II_relaxation}, the finite element framework we employ guarantees the preservation of crucial features of the continuous problem after discretization. Among these are the preservation of a divergence-free magnetic field to machine accuracy, as well as helicity preservation and an energy dissipation equality to the order of nonlinear solver tolerances. 
+
+Computational electrodynamics in general and magnetohydrodynamics in particular are rich with geometric structure, as we will discuss in Section \ref{sec:function_spaces}. It is by now well-understood how this structure can be retained in the corresponding discrete problems thanks to advances in mixed finite element methods~\citep{arnold_finite_2006, boffi_mixed_2013}. Even seemingly benign problems such as the computation of a vector potential $A$ such that $\curl A = B$ given $B$ can pose difficulties after discretization~\citep[Chapter 5]{boffi_mixed_2013}.
+
+Preserving these quantities requires a suitable choice of discrete vector spaces. While it is impossible to preserve all features of the continuous problem in a finite-dimensional approximation, it is possible to use approximation spaces where some identities (e.g. as $\dvg B = 0$) hold to machine precision, while others (e.g. $J = \curl B$) hold only up to the order of the scheme. 
+
+\begin{remark}
+    It is worth noting that the equations that hold only approximately in the discrete approximation are those that only hold approximately in nature, too. In other words, $\dvg B = 0$ and $\curl H = J$ can be considered exact laws of nature, while $\mu_0 H = B$ is a constitutive law - the value of $\mu_0$ is determined experimentally and this linear relation is the zeroth order approximation of the magnetization of the plasma (this is the Bohr–Van Leeuwen theorem \citep[\S52]{landau_statistical_1996} -- the approximation is a very good one in real plasmas).
+\end{remark}
+
+Structure-preserving FE methods have been applied to model MHD phenomena in a number of works~\cite{hu_stable_2017, gawlik_structure-preserving_2021, hu_helicity-conservative_2021, gawlik_finite_2022, holderied_magneto-hydrodynamic_2022, carlier_variational_2025} and also in magnetic relaxation codes~\cite{bressan_2023_relaxation, he_topology-preserving_2025, mao2026structure}. However, to our knowledge, there are no works that tackle the relaxation problem in the practically relevant toroidal geometry using structure-preserving finite elements.
+
+\paragraph{Code framework}
+%
+We built the codebase for this work on the JAX framework~\cite{frostig_compiling_2018, noauthor_jax_nodate}, a tracing just-in-time compiler for generating high-performance accelerator code from pure Python and Numpy programs. The benefit of this is threefold.
+
+(1) The compiled code is highly performant on CPUs, GPUs, and TPUs. It allows us to run MRX on the latest computational hardware available by leveraging the abstractions of the compilers in the OpenXLA framework.
+
+(2) JAX supports automatic differentiation, i.e. the computation of gradients of functions with regard to their input arguments by tracing the primitive operations encountered throughout function evaluation. This allows, for example, the computation of derivatives of equilibrium fields with regard to geometry inputs without resorting to costly finite difference approximations. This is a very attractive feature for PDE-constrained optimization and other  applications, e.g. incorporation of MRX into  stellarator optimization routines, a subject of future work. 
+
+(3) Our code is open-source and highly accessible as all dependencies can be installed via the \texttt{pip} package manager after cloning the code repository~\footnote{\texttt{github.com/ToBlick/mrx}}. We also have interfaces for initializing equilibria from GVEC, VMEC, and DESC solutions, and initializing coordinate mappings from map2disc~\cite{babin2025construction} instead of a nested flux surface solution. 
+
+\section{Outline}
+\label{sec:outline}
+
+In this document, we will introduce the theoretical concepts one-by-one, followed by numerical experiments to demonstrate and validate their impact on the code. The following list covers the remaining sections of this work.
+
+\begin{itemize}
+    \item[\ref{sec:function_spaces}] Notation and formalization of the problem statement.
+    \item[\ref{sec:numerics_1_vacuum}] Numerical verification of vacuum equilibria. These problems can be solved by eigendecomposition. No relaxation is involved.
+    \item[\ref{sec:magnetic_relaxation}] The magnetic relaxation algorithm in continuous form and its structure-preserving discretization. (Non)convergence to equilibria in the continuous and the discrete problem. Newton-type descent methods.
+    \item[\ref{sec:numerics_II_relaxation}] Numerical study on the performance and impact of various hyperparameters in the relaxation algorithm.
+    \item[\ref{sec:reconnection}] Reconnection events, purposeful or spurious. Numerical studies that show the emergence of large islands in the computed equilibria.
+    \item[\ref{sec:discussion}] Summary and pointers to future work.
+\end{itemize}
+
+\section{Function spaces and their approximation}
+\label{sec:function_spaces}
+
+At the center of MRX stands the de Rham complex of function spaces and its faithful discrete approximation. This approximation yields important tools such as the discrete Hodge-Helmholtz decomposition, the crucial identities $\curl \grad = \dvg \curl = 0$, discretely exact, and the identification of harmonic fields. The latter constitute the solutions to MHD equilibria with $J = p = 0$ which are called vacuum solutions.
+
+A thorough treatment of the mathematical theory is given in~\citep[Section 2.2]{arnold_finite_2006} or~\citep[Chapter 7.5]{abraham_manifolds_1988}.
+
+We will discuss the properties of the de~Rham complex in \ref{subsec:derhamcomplex}, the encoding of geometry in \ref{subsec:domain_and_mapping}, and the crucial Hodge-Helmholtz decomposition in \ref{subsec:Hodge decomposition}. In \ref{subsec:discretization} and \ref{sec:implementation}, we present the discretization strategy and some practical implementation choices.
+
+\subsection{The de Rham complex}
+\label{subsec:derhamcomplex}
+
+Let $\Domain$ denote a bounded Lipschitz domain $\Domain \subset \bR^3$. Denote the boundary of $\Domain$ by $\partial \Domain$ and the outward unit normal of a vector at $x \in \partial \Domain$ as $n(x)$. 
+
+The Hilbert space of square-integrable, vector-valued functions on this domain is denoted $L^2(\Domain; \mathbb{R}^3)$. We equip all of the following function spaces with the standard inner product, the induced norm, and we write the volume average of a function with the same bracket. For $u, v \in L^2(\Domain; \mathbb{R}^3)$,
+\begin{align}
+\label{eq:inner_product_definition}
+    &\ip{u}{v} := \int_\Domain u \cdot v \, \rd x, \qquad
+    &\norm{u} := \sqrt{ \ip{u}{u} }.
+\end{align}
+The subscript names the domain of integration; the point-wise norm $|u|^2(x)$ is denoted with single lines. We also introduce the volume average for $f \in L^1(\Domain)$
+\begin{align}
+    \vavg{f} := \frac{1}{|\Domain|} \int_\Domain f \, \rd x . 
+\end{align} 
+
+Errors against a reference solution $u^*$ are reported relative to it, $\| u - u^* \|_{\mathrm{rel}} := \norm{u - u^*} / \norm{u^*}$. 
+%
+The magnetic pressure is $|B(x)|^2 / 2$ and the magnetic energy $\Energy(B) = \norm{B}^2 / 2$; in every relaxation run the initial field is normalized to $\norm{B} = 1$, so that $\Energy = 1/2$ and $\vavg{|B|^2} = 1 / |\Domain|$. 
+%
+The plasma $\beta$ is the ratio of the kinetic to the magnetic pressure: $\beta_{\mathrm{vol}} := \vavg{p} / \vavg{|B|^2 / 2} = 2 \ip{p}{1} / \norm{B}^2$.
+%
+We report pressure values normalized by magnetic pressure, i.e. $p_{\mathrm{norm}}(x) = p(x) / \vavg{|B|^2 / 2}$.
+
+The force residual is normalized as in GVEC~\cite{Hindenlang2026} as
+\begin{align}
+    \| F \|^2_{\mathrm{norm}} := \frac{\norm{J \times B - \grad p}^2}{\norm{ \grad |B|^2 / 2}^2}.
+\end{align}
+
+\begin{definition}[Function spaces]
+    The spaces of vector fields on $\Domain$ with weak grad, curl and divergence are defined as:
+    \medmuskip=3mu
+    \thinmuskip=3mu
+    \thickmuskip=2mu
+    \begin{align}
+        \Hone(\Domain; \bR)    &:= \{ p \in L^2(\Domain; \bR): \grad p \in L^2(\Domain; \bR^3) \},  \\
+        \Hcurl(\Domain; \bR^3) &:= \{ E \in L^2(\Domain; \bR^3): \curl E \in L^2(\Domain; \bR^3) \}, \\
+        \Hdiv(\Domain; \bR^3)  &:= \{ B \in L^2(\Domain; \bR^3): \dvg B \in L^2(\Domain; \bR) \}.
+    \end{align}
+    \medmuskip=4mu
+    \thinmuskip=4mu
+    \thickmuskip=4mu
+    The corresponding spaces of vector fields with homogeneous Dirichlet boundary conditions are defined as:
+    \begin{align}
+        \Hone_0(\Domain; \bR)    &:= \{ p \in \Hone(\Domain; \bR): p|_{\partial \Domain} = 0 \},  \\
+        \Hcurl_0(\Domain; \bR^3) &:= \{ E \in \Hcurl(\Domain; \bR^3): E \times n|_{\partial \Domain} = 0 \},  \\
+        \Hdiv_0(\Domain; \bR^3)  &:= \{ B \in \Hdiv(\Domain; \bR^3): B \cdot n|_{\partial \Domain} = 0 \}.
+    \end{align}
+    We will, from now on, write $L^2(\Domain)$ for short for both vectorial and scalar spaces.
+\end{definition}
+\begin{remark}
+    The expressions $B \cdot n \big |_{\partial \Domain} = 0$ should strictly speaking be understood in the sense of a trace operator, see \citep[Lemma 2.1.1]{boffi_mixed_2013}.
+\end{remark}
+%
+The 3D de Rham complex can be written as:
+\begin{align}
+    \label{eq:deRhamComplex}
+    0 \xrightarrow[]{} H^1 \xrightarrow[]{\grad} \Hcurl \xrightarrow[]{\curl}\Hdiv \xrightarrow[]{\dvg} L^2 \xrightarrow[]{} 0. 
+\end{align}
+It is a special case of a closed Hilbert complex
+\begin{align}
+    \label{eq:deRhamComplex_general}
+    0 \xrightarrow[]{} V^0 \xrightarrow[]{\rd^0} V^1 \xrightarrow[]{\rd^1} V^2 \xrightarrow[]{\rd^2} V^3 \xrightarrow[]{} 0
+\end{align}
+and satisfies the following properties for all $k$: (i) $\range \rd^k \subset V^{k+1}$, (ii) $\rd^{k+1} \circ \rd^{k} = 0$, and (iii) the range of $\rd^k$ is closed in $V^{k+1}$ \citep[Section 3.1.3]{arnold_finite_2010}.
+
+For the de Rham complex, (ii) describes the central vector calculus identities $\curl \grad = \dvg \curl = 0$. We anticipate already that (iii) is crucial to retain during discretization in order to arrive at a well-posed discrete problem \citep[Theorem 4.15]{boffi_mixed_2013}.
+
+We call elements of the space $V^k$ a $k$-form. More details will be given in Section \ref{subsec:Hodge decomposition}.
+
+Each $\rd^k$ has a Hilbert adjoint, the \emph{co-differential} $\rd^*_{k+1} \colon V^{k+1} \to V^{k}$, defined by
+\begin{align}
+    \label{eq:co-differential}
+    \langle \rd^k u, v \rangle_{V^{k+1}} = \langle u, \rd^*_{k+1} v \rangle_{V^{k}},
+\end{align}
+for all $u \in V^k,\ v \in V^{k+1}_*$ where $V^{k+1}_* \subset V^{k+1}$ is the domain of $\rd^*_{k+1}$. These domains are proper subspaces that carry the boundary conditions the differentials do not: for the de Rham complex \eqref{eq:deRhamComplex}, $\rd^*_1 = -\dvg$ on $H_0(\dvg)$, $\rd^*_2 = \curl$ on $H_0(\curl)$, and $\rd^*_3 = -\grad$ on $H^1_0$. The co-differentials form the dual complex
+\begin{align}
+    \label{eq:dualComplex}
+    0 \xleftarrow[]{} V^0 \xleftarrow[]{\rd^*_1} V^1 \xleftarrow[]{\rd^*_2} V^2 \xleftarrow[]{\rd^*_3} V^3 \xleftarrow[]{} 0,
+\end{align}
+which is again a closed Hilbert complex: $\rd^*_{k} \circ \rd^*_{k+1} = 0$ and $\range \rd^*_{k+1} = (\ker \rd^k)^\perp$ is closed.
+
+\subsection{Domain and mapping}
+\label{subsec:domain_and_mapping}
+The domain of interest in this work is $\Domain \subset \bR^3$, the volume of space that encloses the plasma. This domain is typically shaped in a moderately complicated manner, cf. Fig.~\ref{figure:ncsx_3d_sections}. We will define approximation spaces in the logical domain, and therefore need to define appropriate operations to translate between the logical and physical domains. 
+
+\paragraph{Coordinate systems}
+The approach we take in this work is to describe $\Domain$ as the image of the logical domain $\hat \Domain = [0, 1]^3$ after application of the mapping $\Mapping: \hat \Domain \to \bR^3$. We will denote the coordinates on the logical domain by $(r, \theta, \zeta) = \hat x \in \hat \Domain$. The map $\Mapping$ is assumed to be a $C^1$ diffeomorphism everywhere except at $r = 0$. The Jacobian matrix of the mapping $\Mapping$ is defined as $D\Mapping$ with entries $(D\Mapping(\hat x))_{ij} = {\partial \Mapping_i(\hat x)} / {\partial {\hat x_j}}$. 
+
+
+The columns of $D\Mapping(\hat x)$ are parallel to the unit vectors in the $(r, \theta, \zeta)$ directions at position $\hat x$.
+
+We denote $\Mapping(\hat x) = x = (x_1, x_2, x_3)$, these are points in physical space. We also introduce a cylindrical coordinate system $(R, \phi, Z) = (\sqrt{x_1^2 + x_2^2}, \, \arctan_2(x_2, x_1), \, x_3)$. 
+
+\paragraph{Pull-back and push-forward}
+Points in the logical domain $\hat x \in \hat \Domain$ and functions defined in logical coordinates such as $\hat f: \hat \Domain \to \bR$ carry a hat. The hat decorator is omitted on coordinate names $r, \theta, \zeta$, the map $\Mapping$ with its Jacobian $D\Mapping$ and basis functions $\Lambda^k_i$. 
+Through the following push-forward and pull-back operations, we can associate to every function $\hat f$ on the logical domain a function $f: \Domain \to \bR$ on the physical domain.
+
+\begin{definition}[Push-forward]
+\label{def:PushforwardAndPullback}
+    For functions $\hat f, \hat \rho: \hat \Domain \to \bR$ we define two push-forward operations to the physical domain as follows: For all $x \in \Domain$,
+    \begin{align}
+    \label{eq:pushforward}
+        f(x)    &:= (\Mapping^0_* \hat f)(x)    := \hat f(\Mapping^{-1}(x)),  \\
+        \rho(x) &:= (\Mapping^3_* \hat \rho)(x) := \frac{\hat \rho(\Mapping^{-1}(x))}{ \det D\Mapping(\Mapping^{-1}(x))}.   
+    \end{align}
+    We furthermore define two push-forward operators on vector fields $\hat E, \hat B: \hat \Domain \to \bR^3$ as:
+    \thickmuskip=2mu
+    \begin{align}
+    \label{eq:pushforward_EB}
+        E(x) &:= (\Mapping^1_* \hat E)(x) := \left( D\Mapping(\Mapping^{-1}(x)) \right)^{-T} \hat E(\Mapping^{-1}(x)),   \\   
+        B(x) &:= (\Mapping^2_* \hat B)(x) := \frac{ D\Mapping(\Mapping^{-1}(x)) \hat B(\Mapping^{-1}(x))}{ \det D\Mapping(\Mapping^{-1}(x)) }.   
+    \end{align}
+    \thickmuskip=4mu
+    The corresponding pull-back operations are obtained when replacing the mapping $\Mapping$ with its inverse $\Mapping^{-1}$.
+\end{definition}
+\begin{lemma}[\citep{abraham_manifolds_1988}, Theorem 6.4.4] 
+\label{prop:push_forward_deriv_natural}The operations grad, div and curl are \emph{natural} with respect to the push-forward under $C^1$-diffeomorphisms, that is, the push-forward of the gradient/curl/divergence is the gradient/curl/divergence of the push-forward.
+\end{lemma}
+Note that even when $\Mapping$ does not describe an orthogonal mapping, it crucially retains boundary conditions. The proof is given in Appendix~\ref{sec:proofs}.
+\begin{lemma}[Pull-backs preserve boundary conditions]
+\label{lem:pullback_preserves_BCs}
+    When $\hat f \in \Hone_0(\hat \Domain)$, $\hat E \in \Hcurl_0(\hat \Domain)$, and $\hat B \in \Hdiv_0(\hat \Domain)$, 
+    then $\Mapping^0_* \hat f \in \Hone_0(\Domain)$, $\Mapping^1_* \hat E \in \Hcurl_0(\Domain)$, and $\Mapping^2_* \hat B \in \Hdiv_0(\Domain)$.
+\end{lemma}
+
+\paragraph{Stellarator geometry}
+All calculations in this work take place in solid toroidal geometry. All mappings share a polar singularity, i.e.
+\begin{align}
+    \Mapping (r, \theta, \zeta) \overset{r \to 0}{\to} x_\text{axis}(\zeta) \quad \forall \theta.
+\end{align}
+The limit does not depend on $\theta$ so the Jacobian of the map is not invertible at $r=0$. The handling of this singularity is discussed in Section \ref{subsec:discretization}.
+
+Given functions $R: \hat \Domain \to \bR_{ > 0}$ and $Z: \hat \Domain \to \bR$ (the cylindrical coordinates of the image point, hence the letters), we obtain a basic stellarator map as follows:
+\begin{align}
+    \label{eq:stellarator_map}
+    \Mapping:
+    \begin{bmatrix} r \\ \theta \\ \zeta \end{bmatrix} \mapsto
+    \begin{bmatrix}
+        R(r, \theta, \zeta) \cos(2\pi \zeta / n_{\mathrm{fp}}) \\
+        - R(r, \theta, \zeta) \sin(2\pi \zeta / n_{\mathrm{fp}}) \\
+        Z(r, \theta, \zeta)
+    \end{bmatrix},
+\end{align}
+so that $\hat \Domain$ covers one of the $n_{\mathrm{fp}}$ field periods and all fields are $n_{\mathrm{fp}}$-periodic in the toroidal angle.   
+
+In this work, the functions $R$ and $Z$ are represented using spline discretizations introduced in Section~\ref{subsec:discretization}.
+
+\begin{remark}
+    More general maps using e.g. map2disc~\cite{babin2025construction} or maps with additional symmetries (e.g. stellarator symmetry) have also been implemented in the MRX code.
+\end{remark}
+
+\paragraph{Interface with nested flux surface solvers}
+The functions $R, Z : \hat \Domain \mapsto \bR$ are typically obtained from nested-flux surface solvers such as VMEC and {GVEC}. In MRX, the map is represented as a $C^1$ polar B-spline map on the $0$-form basis of the de~Rham sequence.
+
+We emphasize here that we do not assume that $\Mapping$ describes a flux coordinate system. All that is required is that $\Mapping(\hat \Domain) = \Domain$. In general, the magnetic axis and the axis of the coordinate system, $\Mapping(\hat x) \big |_{r = 0}$, need not coincide. 
+
+For every equilibrium solve, the mapping $\Mapping$ is held constant. In contrast, for codes that operate under a nested flux surface assumption, the mapping is itself the optimization objective and changes during solving for equilibrium. Anticipating future use of this code for stellarator optimization (in which the boundary shape and therefore the mapping changes each iteration), we have also re-implemented map2disc's main functionality within MRX, with differentiable JAX code. Future work will focus on incorporating MRX into stellarator optimization routines. 
+
+It is of course possible to use such an optimized map for $\Mapping$. Doing so is beneficial for several reasons: as we expect features of the solution to align with the grid and we can use the physics to derive preconditioning strategies in flux-aligned coordinates.
+
+We show some of the grids employed in MRX in the illustrative Fig.~\ref{figure:mesh_refinement}.
+
+\begin{figure}[thb]
+\includegraphics[width =\linewidth]{figs/mesh_2d.pdf}
+\caption{Different meshes that can be used in MRX at $\zeta = $ const. slices. We show here also Poincaré sections of the reconnected field on these meshes (c.f. Section~\ref{sec:reconnection}). The island width agrees to $2\%$ across the three meshes.}
+  \label{figure:mesh_refinement}
+\end{figure}
+
+\subsection{Hodge decomposition}
+\label{subsec:Hodge decomposition}
+The $L^2$-orthogonal Hodge-Helmholtz decomposition expresses a vector field as the sum of a gradient field, a divergence-free field, and a harmonic component. In fact, vector fields in $L^2(\Domain)$ admit two $L^2$-orthogonal Hodge-Helmholtz decompositions~\citep[Section 7.5.5]{abraham_manifolds_1988}, corresponding to the decomposition of $V^1$ and $V^2$ introduced in Section \ref{subsec:derhamcomplex}:
+\begin{align}
+    \label{eq:helmholtz_decomposition}
+    L^2(\Domain) &= \grad H^1(\Domain) \overset{\perp}{\oplus} \curl \Hcurl_0(\Domain) \overset{\perp}{\oplus} \mathfrak{H}^1(\Domain) \notag \\ 
+    &= \curl \Hcurl(\Domain) \overset{\perp}{\oplus} \grad H^1_0(\Domain) \overset{\perp}{\oplus} \mathfrak{H}^2(\Domain).
+\end{align}
+The orthogonality relations here are understood with respect to the $L^2$ inner product.
+
+In terms of differential and co-differential, the Hodge decomposition reads
+\begin{align}
+\label{eq:hodgeDecomposition}
+V^k &= \range \rd^{k-1} \oplus \range \rd^*_{k+1} \oplus \mathfrak{H}^k, \notag \\
+\mathfrak{H}^k &= \ker \rd^k \cap \ker \rd^*_k.
+\end{align}
+The two decompositions of vector fields in $L^2(\Domain)$ in particular correspond to 1-forms and 2-forms.
+
+\begin{definition}[Harmonic forms]
+    \label{def:harmonic_forms}
+    The spaces $\mathfrak{H}^k$, $k \in \{ 0, 1, 2, 3 \}$, are called harmonic spaces; elements $\mathfrak h_k$ of $\mathfrak{H}^k(\Domain)$ are harmonic forms. The $L^2$-projection onto $\mathfrak H^k$ is denoted by $\Pi^{{\mathfrak H}^k}$. The harmonic spaces of the de Rham complex with homogeneous boundary conditions are denoted by $\mathfrak H^k_0(\Domain)$.
+\end{definition}
+
+\begin{lemma}[{\citep[Corollary 7.5.4]{abraham_manifolds_1988}}]
+    \label{lem:harmonic_spaces}
+    $\grad \mathfrak{h}_0 = 0$ in $\Domain$: the elements of $\mathfrak H^0(\Domain)$ are the functions constant on every connected component of $\Domain$. The elements of $\mathfrak{H}^1(\Domain)$ and $\mathfrak{H}^2(\Domain)$ are vector fields with $\curl \mathfrak h = \dvg \mathfrak h = 0$, with zero normal trace in $\mathfrak{H}^1(\Domain)$ and zero tangential trace in $\mathfrak{H}^2(\Domain)$, and $\mathfrak{H}^3(\Domain) = \{ 0 \}$. Moreover $\dim {\mathfrak H}^k(\Domain) = \dim {\mathfrak H}^{3-k}_0(\Domain)$, the two spaces being isomorphic.
+\end{lemma}
+
+All harmonic forms lie in the kernel of the Hodge-Laplace operator with corresponding boundary conditions.
+
+\begin{definition}[Hodge--Laplace operator]
+    \label{def:hodgeLaplacian}
+    The Hodge--Laplacian on $L^k : V^k \to V^k$ is
+    \begin{align}
+        \label{eq:hodgeLaplacian}
+        L^k = \rd^*_{k+1} \rd^k + \rd^{k-1} \rd^*_k,
+    \end{align}
+    with domain $\{ u \in V^k \cap V^k_* \,:\, \rd^k u \in V^{k+1}_*,\ \rd^*_k u \in V^{k-1} \}$.
+    
+    For the de Rham complex \eqref{eq:deRhamComplex}, $L^0$ and $L^3$ are the scalar Laplacian $-\dvg \grad$, while $L^1$ and $L^2$ are the vector Laplacians $\curl \curl - \grad \dvg$. The boundary conditions differ due to the domains of the co-differentials.
+\end{definition}
+
+By construction $L^k$ is self-adjoint and positive semi-definite, $\ip{L^k u}{u} = \norm{\rd^k u}^2 + \norm{\rd^*_k u}^2$, its kernel is $\mathfrak H^k$ by definition, and it is invertible on $(\mathfrak{H}^k)^\perp$ by the Hodge decomposition \eqref{eq:hodgeDecomposition}.
+
+As a consequence of de Rham's theorem~\citep[Section 7.5]{abraham_manifolds_1988}, the dimensions of the harmonic spaces are the Betti numbers of the domain. That is, $\dim \mathfrak{H}^0(\Domain)$ is the number of connected components of $\Domain$ (always one in this work), $\dim \mathfrak{H}^1(\Domain)$ is the number of tunnels (or handles) in $\Domain$, and $\dim \mathfrak{H}^2(\Domain)$ is the number of cavities.
+
+For a solid torus, the form of all domains in this work, $\dim \mathfrak{H}^1(\Domain) = 1$ and $\dim \mathfrak{H}^2(\Domain) = 0$.
+%
+In the plasma physics community, elements of $\mathfrak{H}^2_0$ are usually referred to as vacuum fields; they describe magnetic fields with zero normal boundary trace that induce no current. For an axisymmetric toroidal domain, $\mathfrak h_1 \propto R^{-1} e_\phi$.
+
+\subsection{Discretization}
+\label{subsec:discretization}
+
+MRX is built on B-spline basis functions defined on the logical domain $\hat \Domain$, mapped to the physical domain $\Domain$ via $\Mapping$.   
+
+\paragraph{Finite element exterior calculus}
+%
+The finite element framework we will follow, known as Finite Element Exterior Calculus (FEEC), crucially retains important features of the de Rham complex introduced in Section \ref{sec:function_spaces} after discretization such as the identities $\curl \grad = \dvg \curl = 0$. These relations hold to machine precision at any discretization resolution, they are topological (incidence) operations. Furthermore, this approach comes with certain guarantees about numerical stability, in particular, the inf-sup stability criterion for various saddle point problems that arise is satisfied~\citep[Theorem 3.8]{arnold_finite_2010} and the approximation spaces can be decomposed via a discrete Hodge-Helmholtz decomposition.
+
+Various excellent references exist on the theory behind FEEC and its connection to cohomology theory~\citep{arnold_finite_2006, arnold_finite_2010}. The exposition we provide here for the sake of self-containedness will be presented on the level of the matrix-vector equations that arise after discretization.
+
+The $k$-forms ($k \in \{0, 1, 2, 3 \}$) are represented as piece-wise polynomial functions valued in $\bR$ (for $k \in \{0, 3\}$) and $\bR^3$ (for $k \in \{1,2\})$. We denote these discrete function spaces by $V^k_h, k \in \{0, 1, 2, 3\}$. 
+
+These spaces are constructed such that the images of the (continuous) $\grad$, $\curl$ and $\dvg$ operators are contained in the subsequent space: $f_h \in V^0_h$ implies $\grad f_h \in V^1_h$, $A_h \in V^1_h$ implies $\curl A_h \in V^2_h$, and $B_h \in V^2_h$ implies $\dvg B_h \in V^3_h$.
+
+\begin{example}[Vector spaces that do not form a complex]
+    This fact importantly does not hold in any FE method. Consider, for example the space $V^0_h$ consisting of piece-wise linear functions and $V^{\mathrm{vec}}_h = V^0_h \otimes V^0_h \otimes V^0_h$, a vector-valued approximation space where every component is an element of $V^0_h$. For $f \in V^0_h$, $\grad f$ is a discontinuous function, hence $\grad f \not \in V^{\mathrm{vec}}_h$.
+\end{example}
+
+The spaces with (essential) homogeneous boundary conditions are denoted $V^k_0 \; \forall k \in \{0,1,2,3\}$.
+%
+The basis functions that span $V^k$ are denoted $\{ \Lambda^k_i \}_i$. We denote the $L^2$-projection operator to the space $V^k$ by $\Pi^k : \Pi^k u = u_h := \sum_i \mathtt{u}_i \, \Lambda^k_i$ {where} $\sum_j \mathtt{u}_j \ip{\Lambda_i^k}{\Lambda_j^k} = \ip{u}{\Lambda^k_i} \; \forall i$.   
+
+\paragraph{Spline finite elements}
+In this work, the spaces $\{ V^k \}_k$ are spanned by a cartesian product of $B$-splines. $B$-splines are defined by their order $p$ and a vector of knot points. They are piece-wise polynomial functions, $C^\infty$ between knot points and $C^{p-m}$ at knot points, where $m$ is the multiplicity of the knot point.
+%
+In particular, given degrees $(p_r, p_\theta, p_\zeta) \in \mathbb N^3$, resolutions $(n_r, n_\theta, n_\zeta) \in \mathbb N^3$ such that $n_c> p_c$, $c \in \{r, \theta, \zeta\}$, let $\{ N^0_{c, i} \}_{i=1}^{n_c}$ denote one-dimensional B-splines of degree $p_c$. The basis functions $\{ \Lambda^0_i \}_{i=1}^{n_r n_\theta n_\zeta}$ are then defined via cartesian products and a flattening of their indices via $\mathrm{vec}: \mathbb N^3 \to \mathbb N, (j,k,l) \mapsto i$. Evaluated at the point $\hat x = (r, \theta, \zeta)$, this yields $\Lambda^0_i(\hat x) \big |_{i = \mathrm{vec}(j,k,l)} = N^0_{r, j}(r) \, N^0_{\theta, k}(\theta) \, N^0_{\zeta, l}(\zeta)$.   
+%
+When we denote the space spanned by one-dimensional B-splines of degree $p$ by $S^p$,
+\begin{align}
+    V^0_h &= \bigotimes_{c \in \{r, \theta, \zeta\}} S^{p_c}, \quad
+    V^1_h = \begin{bmatrix} 
+        S^{p_r-1} \otimes S^{p_\theta} \otimes S^{p_\zeta} \\ 
+        S^{p_r} \otimes S^{p_\theta-1} \otimes S^{p_\zeta} \\
+        S^{p_r} \otimes S^{p_\theta} \otimes S^{p_\zeta-1}
+    \end{bmatrix}, \notag \\ 
+    V^2_h &= \begin{bmatrix} 
+        S^{p_r} \otimes   S^{p_\theta-1} \otimes S^{p_\zeta-1} \\ 
+        S^{p_r-1} \otimes S^{p_\theta} \otimes   S^{p_\zeta-1} \\
+        S^{p_r-1} \otimes S^{p_\theta-1} \otimes S^{p_\zeta}
+    \end{bmatrix}, 
+    V^3_h = \bigotimes_{c \in {r, \theta, \zeta}} S^{p_c-1}.
+\end{align}
+
+Here $n_c$ is the number of splines of $V^0$ in direction $c$: in the periodic angles this is also the number of cells, while the clamped radial direction has $n_r - p$ cells. Throughout this work, we use $h_r := 1 / n_r$ to denote a characteristic cell size.
+
+For more detailed references regarding spline finite elements in computational electromagnetics, we refer to~\citep{buffa_isogeometric_2010, campos-pinto_broken-feec_2024}.
+
+\begin{remark}
+    In the interest of avoiding notational clutter, we will drop the subscript $_h$ in the following.
+\end{remark}
+
+\paragraph{Polar splines}
+The problems we consider occur naturally in toroidal geometry. As a result, the mapping $\Mapping$ is singular at $r = 0$. We modify the cartesian product structure of the spline basis functions because regularity requirements on the axis imply linear dependence of some of the splines with support at $r = 0$: The pull-back of any (physical) 0-form $f$ will lead to $\hat f: \partial_\theta \hat f \big |_{r = 0} = $ constant. The requirement that all elements of $V^0$ satisfy this relation leads to a number of linear constraints, analogously for $k>0$. A detailed reference for these constructions is~\citep[Chapter 5]{holderied_struphy_2022}.
+
+The number of splines affected depends on the desired regularity around the axis. Polar splines are introduced in~\citep{toshniwal_multi-degree_2017, toshniwal_isogeometric_2021, patrizi_isogeometric_2025} and used for MHD simulations in~\citep{holderied_magneto-hydrodynamic_2022}. In the interest of brevity, we refer to these references for further details.
+
+\begin{example}[Continuously differentiable polar splines]
+    For elements of $V^0$ and $V^0_{0}$, $C^0$ continuity demands that in every plane of constant $\zeta$, the coefficients of all $n_\theta$ splines that are clamped at $r = 0$, the inner ring of basis functions, are equal. Hence, $\dim V^{\mathrm{polar},0} = ((n_r - 1) n_\theta + 1) n_\zeta$.
+    To obtain $C^1$ regularity, the two inner rings of basis functions are affected, a total of $2 n_\theta$ functions. In this case, three $C^1$-compatible basis functions are added to replace them, and $\dim V^{\mathrm{polar},0} = ((n_r - 2) n_\theta + 3) n_\zeta$.
+\end{example}
+In order to use polar splines in toroidal domains, it is sufficient that there exists a smooth diffeomorphism between $\Domain$ and a circular axisymmetric torus.    
+
+This is the case for every geometry produced by a nested flux surface solver such as VMEC or GVEC. These solvers represent the domain as a family of poloidal cross-sections swept around the torus, each the smooth image of the unit disc, and their nested-surface ansatz requires $\det D\Mapping$ not to change sign for $r > 0$, so $\Mapping$ is a local diffeomorphism away from the axis. It is injective because distinct flux surfaces do not intersect and the plasma does not intersect itself.
+
+All maps used in this work are represented by the same splines that are used to span $V^0$.
+
+\subsection{Implementation}
+\label{sec:implementation}
+We now give a very brief overview over some implementation choices.
+\paragraph{Matrices}
+By rescaling the splines of lower order in $V^k$, $k>0$, it is possible to ensure that the degree-of-freedom to degree-of-freedom representation of grad, curl, and div operators are incidence matrices, i.e. they only hold entries $\pm 1$, independent of the geometry. We will denote these matrices by $\mathbb D_k$ ($k=0$: grad, $k=1$: curl, $k=2$: div). It holds that $\mathbb D_{k+1} \mathbb D_k = 0$, independent of geometry and mesh size.
+
+Furthermore, we denote the $k$-form mass matrix by $\mathbb M_k$ with entries $(\mathbb M_k)_{ij} = \ip{\Lambda^k_i}{\Lambda^k_j}$. The mass matrices depend on the metric through the pull-back operation, as they must. The integrals over $\Domain$ in this definition are pulled back to integrals over $\hat \Domain$ and evaluated using Gauss-Legendre quadrature in every knot interval (cell) of the spline spaces. The quadrature grid thus mimics the tensor-structure of the basis functions.
+
+All operators (except the second variation bilinear form in the last section~\ref{sec:newtons_method}) in this work can be expressed as combinations of these basic matrices. For example, stiffness-like matrices are given by $\mathbb D_k^T \mathbb M_{k+1} \mathbb D_k$.
+
+For $k=0$, this represents the bilinear form $\ip{\grad \Lambda^0_i}{\grad \Lambda^0_j}$, for $k=1$ it is a curl--curl operator, and for $k=2$, it is the bilinear form corresponding to $-$grad--div.
+
+A weak derivative operator that maps $k$-form degrees of freedom to $k-1$-form degrees of freedom is expressed by $(-1)^k \mathbb M_{k-1}^{-1} \mathbb D_{k-1}^T \mathbb M_{k}$; we write it with a tilde, $\widetilde{\grad}$, $\widetilde{\curl}$, $\widetilde{\dvg}$ for the three weak derivatives. It is called weak as the divergence/curl/gradient only holds in a weak $L^2$ sense, while the incidence relations (gradient of a 0-form is a 1-form, curl of a 1-form is a 2-form, divergence of a 2-form is a 3-form) hold point-wise.   
+
+The full Hodge-Laplace operators combine weak and strong derivatives, reflecting the differential/co-differential formulation of the continuous Hodge Laplacian:
+\begin{align}
+    \mathbb L_k := \mathbb D_k^T \mathbb M_{k+1} \mathbb D_k + \mathbb M_{k} \mathbb D_{k-1} \mathbb M_{k-1}^{-1} \mathbb D_{k-1}^T \mathbb M_{k}, \label{eq:hodge_laplacian_matrix}
+\end{align}
+where it is understood that terms with $k<0$ or $k>3$ are omitted.
+
+This discrete form exactly resembles the definition of $L^k$ as $L^k = \rd^*_{k+1} \rd^k + \rd^{k-1} \rd^*_k$.
+
+
+\paragraph{Matrix-free implementation}
+None of these matrices are ever assembled. They are applied through the tensor-product structure of the spline bases: a $k$-form is evaluated on the $(p+1)^3$ Gauss-Legendre quadrature points of every cell by three one-dimensional contractions, multiplied by the metric coefficients stored on the quadrature grid, and contracted back. The cost of one operator apply is therefore proportional to the number of quadrature points, and the memory footprint to the geometry stored on them, a few floats per point from the symmetric metric tensor (6 unique entries), its inverse (6), and the Jacobian determinant (1).
+
+\paragraph{Solvers and preconditioners}
+Every linear system is solved by a Krylov method on the matrix-free operators: preconditioned conjugate gradients for symmetric positive definite operators, MINRES for indefinite symmetric operators. 
+
+We apply a custom-built preconditioner exploiting the sequence properties and tensor structure of our approximation space. This preconditioning strategy will be explained in a forthcoming publication.
+
+The stopping criterion of every solve is the residual measured in the norm of its space, where the mass matrix preconditioner serves as a cheap proxy for the inverse mass-weighted norm.    
+
+The Hodge-Laplacian is only invertible on the subspace orthogonal to harmonic forms. We hence first compute the harmonic forms for every geometry and then  deflate them from every solve, i.e. project both the right-hand side and solution of $L^k u = f$ to be orthogonal to every harmonic form.
+
+\paragraph{Precision}
+The code runs in three modes. In float64 every operation is in double precision. In float32, used for computational efficiency and needed for running on specialized architectures like TPUs, the Krylov iterations run in single precision and the residual can only be resolved to $\sqrt{\epsilon_{32}} \approx 3.5 \times 10^{-4}$. In mixed mode, the Krylov iterations run in float32 while the residual of the outer iterative refinement is formed in float64 and the correction is accumulated in float64, which reaches float64 tolerances at float32 efficiency.
+
+Default tolerances are $10^{-10}$ in float64, $10^{-8}$ in mixed precision and
+$3.5\times10^{-4}$ in float32.
+
+\begin{remark}
+    All timings cited are on a single H100 GPU. Note that setup times involve host-side compilation, which might be slowed by concurrent jobs taking up resources.
+\end{remark}
+
+\section{Vacuum numerics}
+\label{sec:numerics_1_vacuum}
+
+The first verification experiment we perform concerns the computation of a harmonic (vacuum) field in stellarator geometry, described in \ref{sec:geometry}. We verify the computations against an analytical solution in \ref{sec:manufactured_vacuum_solution} and one computed from VMEC in \ref{sec:vmec_convergence}.
+
+\subsection{Geometry}
+\label{sec:geometry}
+Both GVEC and VMEC supply $(r, \theta, \zeta) \mapsto (R, Z)(r, \theta, \zeta)$ as a discretized function: a spline in $r$ ($p=1$ for the VMEC case) and Fourier expansion in $\theta, \zeta$.
+
+The spline coefficients of the MRX map are the $L^2$ projection of this series onto the map's tensor-product spline space, a cheap operation as it de-couples by direction. The map $\Mapping$ is then assembled as in \eqref{eq:stellarator_map}.
+
+The initial magnetic field is obtained as the discrete curl of a vector potential, $B_0 = \curl A_0$. From the equilibrium's toroidal and poloidal fluxes $r \mapsto \Psi_{\mathrm t}(r), \Psi_{\mathrm p}(r)$ and the angle stream function $(r, \theta, \zeta) \mapsto \lambda(r, \theta, \zeta)$ we obtain the closed-form reference 1-form
+\begin{align}
+    \label{eq:VMEC_vector_potential}
+    \hat A_{0}(r, \theta, \zeta) 
+    = 2\pi\left( -\frac{\lambda\partial_r \Psi_{\mathrm t}(r)}{2\pi},  \Psi_{\mathrm t}(r), -  \frac{\Psi_{\mathrm p}(r)}{n_{\mathrm{fp}}} \right),
+\end{align}
+in the logical frame, whose curl is the equilibrium field in the Clebsch form of the nested-surface solver.
+
+The discrete field is $B_0 = \curl A_0$, so $B_0$ is divergence-free to machine precision. The potential $A_0 \in V^1$ is fixed by prescribing the line integrals of $\hat A_{0}$ over one set of cell-sized intervals (Greville histopolation). The toroidal flux is the circulation of $A_0$ along the wall, a sum of these prescribed line integrals.
+
+Our numerical experiments are run on the geometry of the Landreman-Paul precise quasi-axisymmetric (QA) device~\cite{LandremanPaul2022}, shown in Fig.~\ref{figure:vacuum-qa-bmag}.\footnote{The original low-res input file for this configuration can be found at: \url{https://github.com/hiddenSymmetries/simsopt/blob/master/tests/test_files/input.LandremanPaul2021_QA_lowres}} 
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{figs/vacuum_qa_Bmag.pdf}
+  \caption{Vacuum case: Magnitude $|B|$ of the vacuum magnetic field on the boundary of the QA device. Spline resolution $(32\ttimes 64\ttimes 32)$, degree $p = 3$. 
+  A faint seam is visible after one field period; this is only a visualization artifact, from mapping the plasma with field-period-symmetry.
+  }
+  \label{figure:vacuum-qa-bmag}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width = \linewidth]{figs/vacuum_convergence_analytic.pdf}
+\caption{Convergence of the discrete vacuum field to the analytic solution $B^*$ with respect to resolution: $k=1$ is the scalar-potential route $B = \grad f + c\mathfrak{h}_1$, $k=2$ the vector-potential route $B = \curl A$. The gray lines indicate the theoretical convergence rate $h^p$, which is observed for all cases.}
+% For $k=1$, we measure a convergence rate of $0.96$ ($p=1)$, $1.97$, $3.02$, and $4.07$ ($p=4$). For $k=2$, we measure $0.94$, $1.97$, $2.93$, and $3.92$.}
+\label{figure:analytic_vacuum}
+\end{figure}
+
+\begin{figure*}[tbp]
+  \centering
+  \includegraphics[width=\textwidth]{figs/vacuum_qa_poincare.pdf}
+  \caption{Vacuum case, left: Poincaré ($\zeta = 0.25$) cross-section of the vacuum field of the QA device in the physical frame with field lines colored by rotational transform $\iota$. Center: The same plot in the logical frame. Right: the rotational transform of every traced line, one marker per line, against the logical radius $r$ at which the line crosses $\theta = 0.5$ (the horizontal line in the center plot).}
+
+  \label{figure:vacuum-qa-poincare}
+\end{figure*}
+
+\subsection{Manufactured vacuum solution}
+\label{sec:manufactured_vacuum_solution}
+We consider the Landreman-Paul precise QA design with $n_{\mathrm{fp}} = 2$ and aim to solve the following problem: Find $B$ such that $\dvg B = \curl B = 0$ in $\Domain$ and $(B - B_{\mathrm{vac}}) \cdot n = 0$ on $\partial \Domain$. The idea here is that we can specify an analytic vacuum field as a boundary condition, and validate $(h,p)$ convergence of our code to the analytic vacuum field in the whole volume. 
+%
+The field $B_{\mathrm{vac}}$ is chosen as
+\begin{align}
+    B_{\mathrm{vac}}(R, \phi, Z) = \frac{e_\phi}{R} + \grad \left(R^2\cos (n_{\mathrm{fp}} \phi) \right)
+\end{align}
+in cylindrical coordinates with $\phi \in [0, 2\pi]$. All computations take place in the toroidal coordinates $(r, \theta, \zeta)$.
+
+There are two distinct ways to solve this problem, corresponding to the two Hodge decompositions of the vector-valued $L^2(\Domain)$ space, i.e. expressing the magnetic field as a 1-form $H$ or a 2-form $B$.
+
+
+
+\paragraph{Solution for $k=1$}
+When we approximate the magnetic field as $H \in V^1$, then it holds that
+\begin{align}
+    H = c \mathfrak{h}_1 + \grad f
+\end{align}
+where $\mathfrak{h}_1$ denotes the harmonic field, i.e. the single element of $\mathfrak{H}^1$, $f \in V^0$, and $c \in \bR$ is a scale parameter. Note that $\mathfrak{h}_1 \perp_{L^2} \grad f$ by the discrete Hodge-Helmholtz decomposition property of the FEEC spaces.
+
+To satisfy $\dvg H = 0$ and the normal boundary conditions, we can solve the Neumann problem
+\begin{align}
+    \ip{\grad f}{\grad v} = \ip{B_{\mathrm{vac}}}{\grad v} \quad \forall v \in V^0.
+\end{align}
+This constitutes the inversion of a $k=0$ Hodge-Laplacian operator with natural boundary conditions. The scale $c$ is set by matching the circulation along a closed toroidal curve, which in logical coordinates is obtained by following the vector field $(0,0,1)$.   
+
+
+
+\paragraph{Solution for $k=2$}
+When approximating the vacuum field as $B \in V^2$, there is no explicit harmonic contribution as $\mathfrak{H}^2 = \{0\}$. Instead $B = \curl A$, where the vector potential $A \in V^1$ solves the curl-curl problem
+\begin{align}
+    \ip{\curl A}{\curl w} = \ip{B_{\mathrm{vac}}}{\curl w}
+    \quad \forall w \in V^1,
+\end{align}
+i.e. a $k=1$ Hodge--Laplacian problem with natural boundary conditions. The toroidal flux is carried by the boundary circulation of $A$ and there is no harmonic contribution.
+
+Results are presented in Fig.~\ref{figure:analytic_vacuum}. The meshes have $(m, 2m, m)$ splines per direction with $m = n + p$ and $n = 4, \dots, 64$ radial cells; the $1$-form space then has $6m^3 - 12m^2 + 5m$ and the $2$-form space $6m^3 - 12m^2 + 2m$ degrees of freedom, from $3{,}400$ ($n = 8$, $p = 1$) to $1{,}830{,}000$ ($n = 64$, $p = 4$).
+
+Up to $n = 16$ a run takes 1.5 to 5 minutes at every degree, of which the two solves take seconds to a minute and the rest is the construction of the sequence and its harmonic forms together with the JAX compilation. At the finest meshes the solves dominate: at $n = 64$ the scalar-potential solve takes under a minute at every degree, while the vector-potential solve takes $0.7$, $3.5$, $8$ and $23$ minutes for $p = 1$ to $4$.
+
+
+\subsection{Convergence to a VMEC equilibrium}
+\label{sec:vmec_convergence}
+Next, we compare the discrete harmonic $2$-form $\mathfrak{h}_2 \in \mathfrak{H}^2_0$ against the vacuum field $B_{\mathrm{VMEC}}$ of a VMEC equilibrium of the same QA design. To match the scale of $B_{\mathrm{VMEC}}$, we compute the circulation $c \in \bR$ and report
+\begin{align}
+    \norm{B_{\mathrm{VMEC}} - c\,\mathfrak{h}_2}  \,/\, \norm{B_{\mathrm{VMEC}}} .
+\end{align}
+Unlike the manufactured case there is no exact target: we measure agreement with another computed equilibrium, limited by the accuracy of the independent solve. Against a low-resolution {VMEC} reference ($75$ flux surfaces, $8$/$8$ poloidal/toroidal modes) the difference saturates at $\approx 8 \times 10^{-5}$. Recomputing the reference at higher resolution (201 flux surfaces, 16/12 modes) lowers that floor to $\approx 5 \times 10^{-5}$, which all three degrees reach at the finest meshes (Fig.~\ref{figure:vmec_vacuum}). The solution is shown in Fig.~\ref{figure:vacuum-qa-poincare}, and illustrates essentially nested flux surfaces, consistent with a similar calculation in SPECTRE~\citep[Fig. 5b]{balkovic2026spectre} (at most, there is a very small 10/24 island chain). We expect further convergence of the floor will be limited both by resolution and by the assumption of nested flux surfaces in VMEC. 
+
+With the current MRX code implementation, the harmonic form of the largest reference meshes ($1.8$ to $3.9 \times 10^5$ degrees of freedom) is computed in 20 to 70 seconds after a setup of about two minutes.
+
+\begin{figure}
+\centering
+\includegraphics[width = \linewidth]{figs/vacuum_convergence_vmec.pdf}
+\caption{Agreement $\norm{B_{\mathrm{VMEC}} - c\,\mathfrak{h}_2} / \norm{B_{\mathrm{VMEC}}}$ of the discrete harmonic $2$-form with the high-resolution VMEC vacuum field. The discrepancy decreases with resolution at every $p$ and saturates at $\approx 4.5 \times10^{-5}$, the truncation of the reference. Against the low-resolution reference the difference plateaus earlier, at $8.4 \times 10^{-5}$.}
+\label{figure:vmec_vacuum}
+\end{figure}
+
+\section{Magnetic Relaxation}
+\label{sec:magnetic_relaxation}
+
+We now move on to describing finite-$\beta$ MHS solutions obtained by magnetic relaxation. We introduce its history in \ref{sec:previous_work}, and formulate it as a constrained minimization problem in \ref{sec:constrained_minimization}. We discuss incompressible variations in \ref{sec:incompressible_variations} and clarify the treatment of pressure in \ref{sec:pressure}. A brief discussion of regularization in \ref{sec:regularization} leads to an outline of the actual discrete relaxation scheme in \ref{sec:discrete_relaxation}. We include explanation of relaxation diagnostics in \ref{sec:diagnostics}, a clarification on convergence studies in \ref{subsec:convergence}, and end with Newton's method in \ref{sec:newtons_method}.
+
+\subsection{Relation to previous work}
+\label{sec:previous_work}
+The fact that magnetic equilibria are stationary points of the energy with respect to admissible variations has been known for many decades.
+
+\paragraph{Energy principle}
+In~\cite{grad_hydromagnetic_1958} and~\cite{bernstein_energy_1958}, two different derivations of admissible variations are given. The latter authors credit Lundquist~\cite{lundquist_stability_1951} with the development of this energy principle. The same papers also derive the stability conditions of equilibria based on the eigenvalues of $\delta^2 \Energy$. Alternative derivations of the stability condition are given in~\cite{hain_zur_1957,merkel_holonome_1977}.
+%
+\paragraph{Helicity}
+The observation that the helicity is conserved under admissible variations is usually credited to Woltjer~\cite{woltjer_theorem_1958}, who also pointed out that the fields $B: \curl B \times B = \lambda B$ with constant $\lambda \in \bR$ are minima of the magnetic energy subject to the constraint of constant helicity. The term helicity was coined by Moffatt~\cite{moffatt_degree_1969}, who also connected it to the degree of entanglement of field lines. The term magnetic relaxation was also popularized by the fluid dynamics community, where the same process is used to study stationary solutions of Euler's equations~\cite{moffatt_magnetostatic_1985, moffatt_magnetostatic_1986}. The review article~\cite{moffatt_topological_2021} and textbook~\cite{arnold_topological_2021} give an overview of magnetic relaxation including energy bounds, the Arnold inequality, and specific topological considerations.
+
+\paragraph{Numerics}
+The first works to attempt a constrained minimization of $\Energy$ as a means to compute magnetic equilibria numerically were, to our knowledge, the works by Chodura and Schlüter~\cite{chodura_3d_1981} and the BETA code~\cite{bauer_computational_1978, bauer_magnetohydrodynamic_1984}. 
+%
+A more recent application of this idea is the SIESTA code~\cite{hirshman_siesta_2011}. The principle of magnetic relaxation has also been investigated in the astrophysics community in recent years as a tool to study the Parker conjecture~\cite{pontin_parker_2020, smiet_ideal_2017, he_topology-preserving_2025, pontin_lagrangian_2009, candelaresi_mimetic_2014, mao2026structure}.
+
+\subsection{Constrained minimization}
+\label{sec:constrained_minimization}
+
+Consider a magnetic field $B \in \Hdiv_0(\Domain)$ with $\dvg B = 0$.
+\begin{definition}[Energy functional]
+\label{def:MagneticEnergy}
+    The magnetic energy $\Energy: \Hdiv_0(\Domain) \rightarrow \bR$ of the field $B$ is given by
+    \begin{align}
+    \label{eq:energy}
+        \Energy(B) := \frac{1}{2} \norm{B}^2.
+    \end{align} 
+\end{definition}
+
+\paragraph{Admissible variations}
+Ideal perturbations of $B$ conserve the magnetic topology. They are defined as follows:
+\begin{definition}[Admissible variations]
+\label{def:AdmissibleVariations}
+    Given $v \in \Hdiv_0 (\Domain)\cap C^1(\Domain)$, we define admissible variations $v \mapsto \delta_v B$ by:
+    \begin{align}
+        \delta_v B := \curl (v \times B).
+    \end{align}
+\end{definition}
+
+\begin{proposition}[First variation of the energy]
+    \label{prop:first_variation}
+    For $B \cdot n = v \cdot n = 0$ on $\partial \Domain$ and $J = \curl B$,
+    \begin{align}
+        \label{eq:first_variation}
+        \delta_v \Energy(B) = \ip{B}{\delta_v B} = - \ip{J \times B}{v} .
+    \end{align}
+\end{proposition}
+\begin{proof}
+    From the definition of $\delta_v B$ and integration by parts, $\delta_v \Energy(B) = \ip{B}{\curl (v \times B)} = \ip{\curl B}{v \times B}$. The boundary term vanishes since $\big( (v \times B) \times B \big) \cdot n = (v \cdot B) (B \cdot n) - |B|^2 (v \cdot n) = 0$. Finally $\ip{J}{v \times B} = - \ip{J \times B}{v}$.
+\end{proof}
+
+\paragraph{Arnold's inequality}
+As was mentioned in the introduction, to be useful, magnetic relaxation schemes should avoid relaxing to the vacuum equilibrium $B \propto \mathfrak h$.
+
+To construct such a magnetic relaxation scheme, we will recall the following lower bound on the energy, often referred to as Arnold's theorem~\cite{arnold_asymptotic_1974}. 
+\begin{definition}[Generalized helicity]
+    \label{def:helicity}
+    Let $A \in \Hcurl_0(\Domain)$ with $\curl A = (\mathrm{Id} - \Pi^{{\mathfrak H}^2_0}) B$ and $\dvg A = 0$. The generalized helicity of $B$ is
+    \begin{align}
+        \label{eq:helicity_definition}
+        \Helicity(B) := \ip{A}{B + \Pi^{{\mathfrak H}^2_0} B}.
+    \end{align}
+    Its value does not depend on the gauge of $A$; the gauge $\dvg A = 0$ is fixed for concreteness. When $\mathfrak H^2(\Domain) \neq \{ 0 \}$, this is no longer the case and the definition must be adjusted.
+\end{definition}
+
+\begin{proposition}[Helicity bounds energy]
+\label{prop:helicity_bounds_energy}
+    When $\mathfrak H^2(\Domain) = \{ 0 \}$, the magnetic energy is bounded from below by the generalized helicity, with $\lambda_\Domain$ a constant that depends only on $\Domain$:
+    \begin{align}
+        \label{eq:arnold_inequality}
+        \frac {4 \Energy(B)} {\sqrt{\lambda_\Domain}}  \geq \Helicity(B).
+    \end{align}
+\end{proposition}
+
+\begin{proof}
+    Write $B_{\mathfrak H} := \Pi^{{\mathfrak H}^2_0} B.$
+    The Poincaré inequality~\citep[Proposition 4.1]{ern_discrete_2024} and Helmholtz-Hodge decomposition \eqref{eq:helmholtz_decomposition} give
+    \begin{align}
+    \label{eq:poincare_ineq_AandB}
+        \norm{A}^2
+          \leq \frac{1}{\lambda_\Domain} \norm{\curl A}^2
+        = \frac{1}{\lambda_\Domain} \norm{B}^2.
+    \end{align}
+    Hence,
+    \begin{align}\notag
+        \sqrt{\lambda_\Domain} \ip{A}{B + B_{\mathfrak H}} \leq \sqrt{\lambda_\Domain} \norm{A} \left( \norm{B} + \norm{B_{\mathfrak H}} \right), 
+        \end{align}
+      by the Poincaré and Cauchy-Schwarz inequalities, and
+        \begin{align}
+        \notag
+        \leq 2 \sqrt{\lambda_\Domain} \, \norm{A} \norm{B} \leq 2 \norm{B}^2  = 4 \Energy(B),
+    \end{align}
+    since $\norm{B_{\mathfrak H}} \leq \norm{B}$.
+\end{proof}
+
+Conserving the generalized helicity provides a barrier to relaxing to the trivial equilibrium. A relaxation trajectory is visually illustrated in  Fig.~\ref{figure:landscape}. Resistive dissipation can be used to purposefully induce topological changes, but it is important to control any change in helicity that occurs. We justify below why admissible variations allow for sufficient control over this generalized helicity loss. 
+
+\begin{proposition}[Preservation properties of admissible variations]
+\label{prop:AdmissibleVariationsPreserveDivergenceAndHelicity}
+    Admissible variations of the magnetic field preserve $\dvg B = 0$ and the harmonic component $\Pi^{{\mathfrak H}^2_0} B$, since $\dvg \curl = 0$ and $\curl (v \times B) \perp \mathfrak H^2_0$ by the Hodge--Helmholtz decomposition, and they leave the generalized helicity of Definition~\ref{def:helicity} unchanged: with $A \in \Hcurl_0(\Domain)$, $\curl A = B - \Pi^{\mathfrak H^2_0} B$,
+    \begin{align}
+        \delta_v \Helicity(B) &= \delta_v \int_\Domain A \cdot (B + \Pi^{{\mathfrak H}^2_0} B) \, \rd x = 0.
+    \end{align}
+\end{proposition}
+
+\begin{proof}
+    Let $B_{\mathfrak H} := \Pi^{{\mathfrak H}^2_0} B$. For the vector potential, $\delta_v A = v \times B + \grad \varphi$ for some $\varphi \in \Hone(\Domain)$ depending on the gauge. Hence,
+    \begin{align}
+        \delta \Helicity(v) 
+        &= \ip{\delta_v A}{B + B_{\mathfrak H}} + \ip{A}{\delta_v B} \notag \\   
+        &= \ip{v \times B + \grad \varphi}{B + B_{\mathfrak H}} \\ \notag &\quad + \ip{A}{\curl (v \times B)} \\
+        &= \ip{v \times B + \grad \varphi}{B + B_{\mathfrak H}} \\ \notag & \quad + \ip{B - B_{\mathfrak H}}{v \times B}.
+    \end{align}
+    Since $B \times B = 0$ and $\grad \varphi \perp_{L^2(\Domain)} \{ B, B_{\mathfrak H} \}$ for all $\varphi \in \Hone(\Domain)$, all terms vanish except $\pm \ip{B_{\mathfrak H}}{v \times B}$, which cancel one another.
+\end{proof}
+
+\begin{remark}
+    For more information on generalized helicities, we refer to~\citep[Section III.7]{arnold_topological_2021} and~\citep{mactaggart_magnetic_2019, he_topology-preserving_2025}.
+\end{remark}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/energy_landscape.pdf}
+\caption{
+A sketch of magnetic relaxation as a constrained minimization problem. 
+Field configuration energy $\Energy$ is displayed on the $z$-axis. Constant helicity $\Helicity$ sheets are plotted in gray. 
+The lowest energy states at fixed helicity are Taylor states, $\curl B_{\mathrm{Taylor}} = \lambda \, B_{\mathrm{Taylor}}$.
+By Arnold's inequality \eqref{eq:arnold_inequality}, lowest energy within one sheet grows with $|\Helicity|$ and the vacuum field $\curl B_{\mathrm{vacuum}} = 0$ is the lowest energy state.
+The orbit generated by admissible variations (teal) satisfies the stricter constraint of constant field topology within one helicity sheet. 
+Relaxation from $B_0$ descends along this orbit to the nearest minimum, $B_{\mathrm{eq}}$. 
+Smooth local minima of the energy along this orbit satisfy $\ip{J \times B}{v} = 0$. 
+The orbit is plotted with kinks to demonstrate the regularity issues discussed in Section \ref{subsec:convergence}: at a kink the energy is not differentiable along the orbit, and a minimum there need not be force-free.
+}
+\label{figure:landscape}
+\end{figure}
+
+\paragraph{Resistivity and reconnection}
+Occasionally, it is useful in a magnetic relaxation scheme to induce some reconnection. Resistivity is an effect that introduces magnetic diffusion, allowing for reconnection of field lines. 
+
+Physically, resistivity proportional to a constant parameter $\eta \geq 0$ modifies the variations to
+\begin{align}
+    \delta_v B = \curl (v \times B - \eta J),
+\end{align}
+with $J \in \Hcurl_0(\Domain)$.
+
+\begin{lemma}[Resistive variations]
+    \label{lem:resistive_variations}
+    For $\delta_v B = \curl (v \times B - \eta J)$ with $J \in \Hcurl_0(\Domain)$,
+    \begin{align}
+        \delta_v \Energy(B) &= - \ip{J \times B}{v} - \eta \norm{J}^2,
+        \intertext{and}
+        \delta_v \Helicity(B) &= - 2 \eta \, \ip{J}{B} .
+    \end{align}
+\end{lemma}
+
+See Appendix~\ref{sec:proofs} for the proof.
+
+\begin{proposition}[Helicity loss under resistivity]
+    \label{prop:helicity_loss}
+    With the variations of Lemma~\ref{lem:resistive_variations},
+    \begin{align}
+        \label{eq:helicity_loss_bound}
+        | \delta_v \Helicity(B) |^2
+        \leq 8 \eta \, \Energy(B) \, | \delta_v \Energy(B) | ,
+    \end{align}
+    an upper bound on $| \delta \Helicity |$ of order $\sqrt{\eta}$.
+\end{proposition}
+ While magnetic diffusion can drastically change the small-scale topology of the field, the global helicity can persist through much longer time scales. The proof is given in~\citep[Remark 7.19]{arnold_topological_2021}.
+
+\paragraph{Gradient descent}
+Setting $v = J \times B$ leads to $\delta_v \Energy(B) = - \norm{J \times B}^2  \leq 0$, a decrease in energy that formally terminates once $\curl B = \lambda B$, a pressure-less equilibrium of the form of a Beltrami field.
+
+\subsection{Incompressible variations}
+\label{sec:incompressible_variations}
+Clearly, we need to generalize this picture to include finite pressure; we want to satisfy $J\times B = \nabla p$ at equilibrium, not $J \times B = 0$. This is achieved with the Leray projection.
+
+\begin{definition}[Leray projection]
+    \label{def:leray}
+    The Leray projection of $u \in \Hdiv(\Domain)$ is
+\begin{align}
+\label{eq:elliptic_pressure_problem}
+    \Leray u := u - \grad p, \text{ where } - \Delta p = - \dvg u,
+\end{align}
+    with homogeneous Neumann boundary conditions on $p$; by construction $\dvg \Leray u = \dvg (u - \grad p) = 0$.
+\end{definition}
+
+\begin{corollary}[Force balance at a stationary point]
+    \label{cor:force_balance}
+    For $v = \Leray (J \times B)$,
+\begin{align}
+    \delta_v \Energy(B)
+    &= -\ip{J \times B}{J \times B - \grad p} \\
+\label{eq:force_balance_deltaE}
+    &= - \norm{J \times B - \grad p}^2 ,
+\end{align}
+    as $J \times B - \grad p$ is divergence-free and hence $L^2$-orthogonal to $\grad p$; a stationary point of this descent satisfies $J \times B = \grad p$.
+\end{corollary}
+
+More generally, the Hodge--Helmholtz decomposition yields
+
+\begin{corollary}[Decomposition of the Lorentz force]
+    \label{cor:force_decomposition}
+    By the Hodge--Helmholtz decomposition \eqref{eq:helmholtz_decomposition}, for any $B$ the Lorentz force $J \times B = \curl B \times B$ decomposes as
+\begin{align}
+    \label{eq:force_decomposition}
+    J \times B = \grad p + \curl \omega + c \mathfrak h,
+\end{align}
+    with $\curl \mathfrak h = \dvg \mathfrak h = 0$, $\norm{\mathfrak h} = 1$ and $c \in \bR$. The three components are $L^2$-orthogonal to one another, hence $\norm{J \times B - \grad p} \leq \norm{J \times B}$.
+\end{corollary}
+
+Another option is to solve $\curl \curl \omega = \curl (J \times B)$ and set $c = \ip{\mathfrak h}{J \times B}$. This step is analogous to the computation of the potential $A$ from $B$.   
+
+We then obtain $J \times B - \grad p$ as $\curl \omega + c \mathfrak h$. Note that $c \ll 1$ close to equilibria where $J \times B$ is approximately $\grad p$, which is $L^2$-orthogonal to $\mathfrak h$.
+
+\begin{proposition}[Admissible variations are push-forwards along volume-preserving flows]
+    \label{prop:flow_variations}
+    Let $\mathcal F_t$ be the flow of a velocity field $v_t$, $\rd \mathcal F_t(x) / \rd t = v_t(\mathcal F_t(x))$, $\mathcal F_0(x) = x$, and let $B_t(\mathcal F_t(x)) := D\mathcal F_t(x) B_0(x)$ be the push-forward of $B_0$. Then $\mathcal F_t$ is volume-preserving if and only if $\dvg v_t = 0$, and $\partial_t B_t = \curl (v_t \times B_t)$: the admissible variations of Definition~\ref{def:AdmissibleVariations} are the infinitesimal push-forwards along volume-preserving flows~\citep{arnold_topological_2021}.
+\end{proposition}
+\begin{proof}
+    Let $\mathcal F_t$ denote such a map and define $B_t(\mathcal F_t(x)) := D\mathcal F_t(x) B_0(x)$, the push-forward of an initial field $B_0$ with this flow. When ${\rd} \mathcal F_t(x) / {\rd t} = v_t(\mathcal F_t(x)), \, \mathcal F_0(x) = x$, then $\mathcal F_t$ is volume-preserving if and only if $\dvg v_t = 0$ (by Liouville's formula) and we find $0 = \rd ( B_t \circ \mathcal F_t - D\mathcal F_t B_0 ) / {\rd t} \big |_{ t = 0 } = \partial_t B_t + DB_t v_t - Dv_t B_t = \partial_t B_t - \curl (v_t \times B_t)$. An adapted calculation holds for compressible variations as well, see~\citep[Lemma C.1]{enciso_obstructions_2025}.   
+\end{proof}
+
+\begin{remark}
+    It has been conjectured in~\citep[Section I.9]{arnold_topological_2021} and shown in~\citep{enciso_helicity_2016} that helicity is in fact the only integral invariant of volume-preserving maps given certain regularity assumptions.   
+\end{remark}
+
+\subsection{Pressure}
+\label{sec:pressure}
+    
+% In equilibrium calculations, the pressure is usually considered a prescribed input. This is well-motivated in 2D problems like Grad-Shafranov, where $p(\psi)$ is a flux function and its dependence on $\psi$ can be prescribed (although even in that case the final pressure in physical space is also an output of the numerical method, since it will vary as $\psi$ varies). A generic 3D MHS equilibrium, or generic initial field, will not exhibit nested flux surfaces, and it becomes unclear how to specify an input pressure profile.
+
+For Grad-Shafranov solvers as well as 3D nested equilibrium solvers that solve for the flux function $\psi$, the dependence of $p$ and $\iota$ as functions of $\psi$ is an input to the method. The physical fields $p(x)$ and $\iota(x)$ are then given by $p(x) = p_{\mathrm{profile}}(\psi(x))$ and $\iota(x) = \iota_{\mathrm{profile}}(\psi(x))$. With enough experience, one can use the inputs $p_{\mathrm{profile}}$ and $\iota_{\mathrm{profile}}$ to shape the outputs $p$ and $\iota$. Even in this case, the final pressure in physical space is also an output of the numerical method, since it will vary as $\psi$ varies. In three-dimensional configurations, this procedure breaks down as $B$ is no longer determined by $\psi$ and the toroidal flux value alone.
+
+In our case, the pressure $p$ (the same letter as the spline degree, which does not appear in this context) is not treated as a dynamical variable and function of the density as in e.g.~\cite{chodura_3d_1981, hender_calculation_1985, hirshman_siesta_2011}, but rather as a Lagrange multiplier. We prescribe an initial pressure and rotational transform only through the initial condition $B_0$. At each step, it is the solution to the elliptic problem Eq.~\eqref{eq:elliptic_pressure_problem} with homogeneous Neumann boundary conditions, with the advantage that it enforces the important property that force balance holds at an energy minimum, Eq.~\eqref{eq:force_balance_deltaE}. In other words, the final pressure profile will depend on the initial condition and the trajectory (the hysteresis) of the relaxation.     
+\begin{remark}
+    This choice is common among helicity-preserving relaxation methods in fluid dynamics but to our knowledge has not been used in previous magnetic relaxation codes. 
+\end{remark}
+
+For practical purposes, one way to replicate the profile design is to prescribe a $p$ and $\iota$ profile using a code that assumes nested flux surfaces and then use the output of this code as an input to a relaxation run, potentially with a small perturbation to escape the (local) minimum with nested flux surfaces.
+%
+As the relaxation process starts close to an equilibrium, we can expect that $\norm{B - B_0}$ is small, where $B$ denotes the state of the magnetic field throughout the relaxation. The same is true for $\norm{p - p_0}$ and  $\norm{\iota - \iota_0}$, giving us control of $p$ and $\iota$ through the initial condition. In this case, the lack of direct control over the profiles might actually be a useful feature; the prescribed $p_{\mathrm{profile}}$ and $\iota_{\mathrm{profile}}$ are roughly respected, and some modifications and flattening of the profiles can be achieved where islands and chaos open up in the solution.
+
+% \begin{example}[Screw pinch]
+%     Consider the screw pinch, a 1D configuration in an infinitely long cylinder, where $B = B_\theta(r) e_\theta + B_z(r) e_z$. In this case, $(J \times B) \parallel e_r$ and is a function of $r$ only, hence $\curl (J \times B) = 0$, $\mathfrak h = 0$, and we can solve directly for $p = - (\Delta)^{-1} \dvg (J \times B)$.
+% \end{example}
+
+\subsection{Regularization}
+\label{sec:regularization}
+
+There are a priori only very weak regularity guarantees on $J \times B$ and this can lead to grid-scale oscillations in $v$ in a numerical scheme. For this reason, it is beneficial to apply a smoothing operation to $v$, as has been done in~\cite{chodura_3d_1981} and also is done in the analytic treatment of the relaxation problem in ~\citep[Equation 2.1]{beekie_moffatts_2022}.
+
+We can let $v = (\mathrm{Id} - \varepsilon \Delta)^{-\gamma} (J \times B - \grad p)$ ($\varepsilon > 0$) in order to dampen high-frequency oscillations.
+
+We note the following solvability result:
+\begin{lemma}[\cite{arnold_finite_2010}, Section 6.2.3]
+    \label{lem:curlcurl_solvability}
+For any $F \in \Hdiv_0(\Domain)$ satisfying $F \perp {\mathfrak H}^2_0$ and $\dvg F = 0$, there exists $u \in \Hdiv_0(\Domain)$ such that $\curl \curl u = F$, $\dvg u = 0$, and $u \perp {\mathfrak H}_0^2$.
+\end{lemma}
+
+By Lemma~\ref{lem:curlcurl_solvability}, $\dvg v = \dvg \, (\mathrm{Id} - \varepsilon \Delta)^{-\gamma} \Leray (J \times B) = 0$ and
+\begin{align}
+    \delta_v \Energy(B)
+    &= -\ip{(\mathrm{Id} - \varepsilon \Delta)^{-\gamma} (J \ttimes B - \grad p)}{J \ttimes B} \\    
+    &= - \| J \times B - \grad p \|^2_{H_{0,\varepsilon}^{-\gamma}(\Domain)} = - \| v \|^2_{H_{0,\varepsilon}^{\gamma}(\Domain)},
+    \notag
+\end{align}
+i.e. the energy dissipation equals an $\varepsilon$-weighted Sobolev norm of order $-\gamma$ of the force residual.
+
+\subsection{Discrete relaxation}
+\label{sec:discrete_relaxation}
+We now provide the discrete counterparts to the continuous relaxation. We simplify to the case $\gamma = 1$ without loss of generality.
+
+\paragraph{Algorithm}
+Relaxation is performed by solving the following system of equations:
+\begin{definition}[Relaxation step]
+    \label{def:relaxation_step}
+    Let $B^n \in V^2_{0}$, $\delta t, \, \varepsilon \in \bR_{> 0}$. The relaxation step from $B^n$ to $B^{n+1}$ is the solution of
+\begin{align}
+    \label{eq:relaxation_algo}
+    J          &= \widetilde{\curl} \, B^{n}, \\
+    p           &= (\dvg \widetilde{\grad})^{-1} \dvg (J \times B^n) \\
+    v &= (\mathrm{Id} + \varepsilon \curl \widetilde{\curl})^{-1} (J \times B^n - \widetilde{\grad} \, p), \\
+    E           &= {\Pi}^1_0 (v \times B^n) - \sigma \, {\Pi}^1_0 B^n, \\    
+    B^{n+1}     &= B^n + \delta t \curl E,
+    \label{eq:relaxation_algo_E}
+\end{align}
+    where the optional scalar $\sigma \in \bR$ is chosen such that $\ip{E}{B^n + B^{n+1}} = 0$.   
+\end{definition}
+
+The operations $\widetilde{\grad}$, $\widetilde{\curl}$, $\widetilde{\dvg}$ are the weak derivatives as described in Section~\ref{sec:implementation}. They are the discrete version of the co-differential operators from Equation \eqref{eq:co-differential}.   
+
+The velocity smoothing constitutes a Hodge-Laplace problem for $k = 2$ and the Leray projection one for $k = 3$. The alternative path via $v = \curl \omega + c \mathfrak h$ requires the inversion of a $k=1$ Hodge-Laplacian:
+\begin{align}
+    \omega &= (\widetilde{\curl} \curl)^{-1} \widetilde{\curl} \, (J \times B^n), \qquad \widetilde{\dvg} \, \omega = 0, \\
+    v &= \curl \, (\mathrm{Id} + \varepsilon \widetilde{\curl} \curl)^{-1} \omega + \frac{\ip{J \times B^n}{\mathfrak h}}{\norm{\mathfrak h}^2} \, \mathfrak h
+\end{align}
+
+All problems are posed with essential boundary conditions. Their discrete well-posedness is shown in~\citep[Sections 6.2.2--4]{arnold_finite_2010}
+
+All together, a single relaxation step thus constitutes the solution of two Hodge--Laplace equations and a number of mass matrix inversions.
+
+\paragraph{Discrete helicity preservation}
+We now discuss how the continuous helicity preservation from Proposition~\ref{prop:AdmissibleVariationsPreserveDivergenceAndHelicity} reflects in the discrete setting.
+\begin{definition}[Discrete vector potential and helicity]
+    \label{def:discrete_helicity}
+    The discrete vector potential $A \in V^1_0$ of $B \in V^2_0$ is the solution of the Hodge--Laplace problem for $k = 1$ with essential boundary conditions~\citep[Section 6.2.2]{arnold_finite_2010},
+\begin{align}
+    \label{eq:laplace_1_0}
+    \widetilde{\curl} \curl A - \grad q = \widetilde{\curl} \, B, \; q = \widetilde{\dvg} A, \; A \perp_{L^2} {\mathfrak H}^1_0,   
+\end{align}
+    which gives $\curl A = B - \Pi^{\mathfrak H^2_0} B$. The discrete helicity is that of Definition~\ref{def:helicity}, $\Helicity = \ip{A}{B + \Pi^{\mathfrak H^2_0} B}$.
+\end{definition}
+
+The following identity holds for any $E \in V^1_0$ when $B^{n+1} = B^n + \delta t \curl E$, the proof is given in Appendix~\ref{sec:proofs}.
+
+\begin{lemma}[Discrete helicity balance]
+\label{lem:helicity_balance}
+    Let $B^n \in V^2_0$, $E \in V^1_0$ and $B^{n+1} = B^n + \delta t \curl E$. Then
+    \begin{align}
+        \label{eq:helicity_balance}
+        \Helicity^{n+1} - \Helicity^{n} &= 2 \, \delta t \, \ip{E}{B^{n}} + \delta t^2 \, \ip{E}{\curl E}.
+    \end{align}
+\end{lemma}
+
+The continuous flow conserves the helicity because $E = v \times B$ is point-wise orthogonal to $B$ and the second term, time-integration error of the explicit step, vanishes. Discretely, the projection of $v \times B$ onto $V^1_0$ to obtain $E$ leads to a residual of order $h^p$ in the interior.
+
+\begin{corollary}[Discrete helicity remainder]
+\label{prop:helicity_remainder}
+    For $E_\sigma = \Pi^1_0 (v \times B^n) - \sigma \, \Pi^1_0 B^n$ as in \eqref{eq:relaxation_algo},
+    \begin{align}
+        \frac{\Helicity^{n+1} - \Helicity^{n}}{2 \, \delta t}
+        &= \ip{\Pi^1_0 (v \times B^n) - v \times B^n}{\; B^n - \Pi^1_0 B^n} \notag \\
+        &\quad - \sigma \norm{\Pi^1_0 B^n}^2 + \frac{\delta t}{2} \, \ip{E_\sigma}{\curl E_\sigma} .
+        \label{eq:helicity_remainder}
+    \end{align}
+\end{corollary}
+
+Equation~\ref{eq:helicity_remainder} is a quadratic function in $\sigma$. It can be solved for $\sigma$ to make the right-hand side vanish and restore exact discrete helicity preservation at the cost of a few matrix-vector products and one additional mass matrix inversion.
+
+An alternative method to exactly preserve helicity discretely is the introduction of an auxiliary variable $H = \Pi^1_0 B$ together with an implicit midpoint method for time-stepping. For the configurations in this work, $H \times n = 0$ is not a reasonable assumption, as the magnetic field does not vanish on the computational boundary. Projecting $B$ to the $V^1_0$ space can lead to spurious oscillations. The works~\cite{bressan_2023_relaxation, he_topology-preserving_2025} that use the auxiliary variable formulation assume either fully periodic or no-slip boundary conditions.
+
+The advantage of the auxiliary variable approach is that the problem stays variational. In contrast, $\sigma \neq 0$ changes the energy identity by $\sigma \, \delta t \, \ip{J}{B}$. Given that $\sigma$ is usually of the order $10^{-12}$, it is in practice not enough to break energy dissipation.
+
+We emphasize here that the preservation of global helicity is not a constraint that is as strong as the preservation of field-line topology that is present in the continuous problem. Indeed, as we will see in the numerical experiments, grid-scale islands can appear and vanish throughout relaxation after discretization. 
+
+\paragraph{Discrete energy evolution}
+The following result is proven in Appendix~\ref{sec:proofs}.
+
+\begin{proposition}[Discrete energy evolution]
+    \label{prop:energy_dissipation}
+    Solutions to \eqref{eq:relaxation_algo} satisfy
+    \begin{align}
+        \frac{\Energy^{n+1} - \Energy^{n}}{\delta t} = &- \norm{v}^2 - \varepsilon \, \norm{\widetilde{\curl} \, v}^2 - \sigma \, \ip{J}{B^n} \notag \\
+        &+ \frac{\delta t}{2} \norm{\curl E_\sigma}^2
+    \end{align}
+    with $E_\sigma = \Pi^1_0 (v \times B^n) - \sigma \, \Pi^1_0 B^n$.
+    
+    In particular, for $\sigma = 0$ the energy decreases for $0 < \delta t < 2 \big( \norm{v}^2 + \varepsilon \norm{\widetilde{\curl} \, v}^2 \big) / \norm{\curl E_\sigma}^2$.
+\end{proposition}
+
+\begin{lemma}[Exact line search]
+    \label{lem:line_search}
+    Since the magnetic energy is quadratic in the increment $\delta B = \curl E^n$, the line search $\min_{\delta t} \Energy(B^n + \delta t \curl E^n)$ has the closed-form solution
+\begin{align}
+    \label{eq:line_search}
+    \delta t_* = -\frac{\ip{B^n}{\curl E^n}}{\norm{\curl E^n}^2} .
+\end{align}
+\end{lemma}
+
+We clip this time-step so that the velocity advects the field by at most a fraction $C$ of a cell in one step: with $\hat v^i$ the logical components of $v$ and $h_i$ the knot spacing of direction $i$.
+\begin{align}
+\label{eq:CFL}
+    \delta t = \min \Big\{ \delta t_*, \; \frac{\mathrm{CFL}}{\max_{\hat x \in \hat \Domain,\, i} |\hat v^i(\hat x)| / h_i} \Big\}
+\end{align}
+with CFL $< 1$. We pick CFL $= 0.5$ in all numerical experiments. Empirically, the cap binds only in the first steps of a relaxation from a rough initial field.
+
+\paragraph{L-BFGS}
+We can store the velocities from previous steps in order to build an L-BFGS descent path. We denote the memory size by $m$. Note that the L-BFGS approximation of the hessian is not aware of the curvature of the constraint (constant topology) manifold. While it is built only from admissible descent directions, a true second-order method needs to take the second constrained variation into account as discussed in Sec.~\ref{sec:newtons_method}. With $m=1$, we recover the Polak--Ribi\`ere conjugate gradient method, also used in~\cite{chodura_3d_1981}. We use Powell's restart~\cite{powell_restart_1977} when consecutive forces are far from orthogonal and fall back to gradient descent $(m=0)$ for this step to avoid the descent stalling.   
+
+\paragraph{Chunking}
+The relaxation loop runs internally in an inner, compiled loop of chunks, embedded in an outer loop that is pure Python. Between outer loop steps, any callback routines can run, such as computing and storing diagnostics. As a result, host-device synchronization happens once per chunk rather than once per step. This offers a good compromise between speed and flexibility. The fastest performance can be achieved running the entire relaxation in one chunk, but the overhead from the outer loop is typically small (1--5\% of wall time). 
+
+The full descent state, the field, the pressure, the warm starts of the solves and the optimizer's history is written to disk at every chunk and can be restarted from any checkpoint with the same geometry, mesh, degree and precision, so that a relaxation can be branched off from or resumed at a later time.   
+
+\subsection{Diagnostics}
+\label{sec:diagnostics}
+
+The following diagnostics are central to our numerical experiments.
+
+\paragraph{Force residual}
+We recall that following GVEC's convention, we normalize the force balance by the magnetic pressure gradient.
+\begin{align}
+\label{eq:force_residual_normalized}
+    \| F \|^2_{\mathrm{norm}} &= \norm{J \times B - \grad p}^2 / \norm{\grad |B|^2 / 2}^2. \notag
+\end{align}
+
+\paragraph{Rotational transform}
+The rotational transform $\iota$ is defined as the fraction of poloidal versus toroidal rotations along a field line. 
+
+For each traced field line, $\iota$ is fitted as the slope of the unwrapped poloidal against the toroidal angle over the whole trace.
+
+
+\paragraph{Poincaré plots}
+To compute integral curves we integrate $\rd x_t / \rd t = B(x_t)$ with $x_{t=0} = x_0$. This is done in logical coordinates: the integral curve there is $\hat x_t = \Mapping^{-1} \circ x_t$, so $\rd \hat x_t / \rd t = D\Mapping^{-1}(x_t)\, \rd x_t / \rd t = D\Mapping^{-1}(x_t)\, B(x_t)$ and $\hat x_{t=0} = \Mapping^{-1}(x_0)$. Using the definition of $B \in V^2$ and $H \in V^1$ through their logical representatives $\hat B$ and $\hat H$,
+\begin{align}
+    \frac{\rd }{\rd t} \hat x_t
+    &= \big( \det D\Mapping(\hat x_t) \big)^{-1} \hat B(\hat x_t)
+    \\ &= D\Mapping^{-1} D\Mapping^{-T}\, \hat H(\hat x_t).
+    \notag
+\end{align}
+Since we want intersections of the integral curves with planes $\zeta = \mathrm{constant}$, we re-parametrize by $\zeta$, i.e.\ we divide by the $\zeta$-component of the right-hand side:
+\begin{align}
+    \frac{\rd }{\rd \zeta} \hat x = \frac{\hat B(\hat x)}{\hat B_{\zeta}(\hat x)},
+\end{align}
+where $\hat B_{\zeta}$ is the $\zeta$-component of the logical vector $\hat B$ (and analogously $\hat H$).
+The $\zeta$-component of the right-hand side is then unity, so $\zeta$ is the independent variable and we record crossings at fixed-$\zeta$ planes, stepping forward period by period. In our numerical experiments field lines are integrated with a fixed-step fifth-order explicit (Tsitouras') Runge--Kutta scheme from the {diffrax}~\citep{kidger_neural_2022} package.
+
+\begin{remark}
+    This is in contrast to, e.g. the SIMSOPT suite, where field lines are traced in cartesian coordinates and plane crossings are detected in a secondary post-processing step via root-finding. We have found the re-parametrization with $\zeta$ to be significantly faster.
+\end{remark}
+
+\paragraph{Island size}
+The width of an island chain at $\iota = n_{\mathrm{fp}} \, n / m$, where $n$ counts the chain's toroidal turns per field period so that its toroidal mode number is $n_{\mathrm{fp}} n$, is measured on the traced field lines. Among the lines whose fitted rotational transform lies within $2\times 10^{-3}$ of the rational, we take the largest excursion $\max_c r_c - \min_c r_c$ of the logical radius over all crossings $c$ on all planes. A line inside the island near its separatrix spans the full island width, a nested surface spans nothing, so the measure is zero when the chain is closed. 
+
+Widths are quoted in logical $r$ and in units of the radial cell $h_r = 1/n_r$.
+
+\subsection{Convergence}
+\label{subsec:convergence}
+
+In this last section, we discuss the topic of convergence of magnetic relaxation methods. We now review the physical mechanism of current sheets forming on rational surfaces, what is known about the continuous problem from the analysis side, and how these difficulties lead to finite resolution effects. 
+
+\paragraph{Current sheets}
+Ideal relaxation in the continuous limit keeps the topology of the field lines, so the equilibrium it tends to retains the rotational transform of the initial field on every surface. On a surface with rational transform $\iota = n/m$ the field lines close. Force balance across such a surface has no smooth solution in general: the perpendicular current $B \times \grad p / |B|^2$ has a divergence that the parallel Pfirsch-Schlüter current must close. For the $(m, n)$ harmonic the closing current is proportional to $1 / (\iota m - n)$ \citep{loizu_magnetic_2015}.
+
+The ideal displacement that would align the field is discontinuous across the surface for the same reason. At rational surfaces, $B$ is tangentially discontinuous, hence the current $\curl B$ is a singular sheet. This mechanism is what the Grad conjecture \citep{grad_toroidal_1967, constantin_flexibility_2021} and the Parker problem \citep{parker_spontaneous_1994, moffatt_magnetostatic_1985} are concerned with.
+
+\paragraph{The continuous problem}
+The well-posedness of the magnetic relaxation is largely an open problem in analysis. It is known that the regularized relaxation is globally well-posed on the flat torus for $\gamma > d/2 + 1$ and its velocity tends to zero \citep{beekie_moffatts_2022, bae_local_2025}. However, the limit need not be smooth and generic fields cannot relax to a smooth equilibrium under their topological constraint \citep{cieliebak_note_2017, enciso_obstructions_2025}. 
+
+\paragraph{Discretization floor}
+For any discretization, a real current sheet would be a sub-grid quantity. After a fast initial descent, any relaxation run will form them and the force residual stalls near the discretization floor where the forming current sheets can no longer be resolved.
+
+This floor is not a stationary point of the discrete energy, at which the projected force would vanish. The optimization landscape becomes very flat along the directions of modifying the sheet-scale structures. At this stage any progress in decreasing the energy comes at the price of numerical reconnection. One can constrain the topology conservation more by using a smaller time-step or a tighter solver tolerance, but true convergence is not possible.   
+
+The consequence is that a relaxation run for practical purposes should aim to reach this floor and terminate instead of spending large amounts of computational effort for little gain.
+
+The rise of the force residual can be pictured as taking long steps along a narrow, curved valley of the energy landscape. The quadratic model is accurate along the valley floor, yet any misalignment sends the step up the valley's sides, where the gradient (force residual) grows even though the energy still decreases. The regularized line search of Section~\ref{sec:newtons_method} shortens the step once the sides are felt.
+
+\subsection{Newton's method}
+\label{sec:newtons_method}
+Far away from the discretization floor and close to a nested equilibrium state (in the weak sense), the optimization problem is well-behaved. We can make use of second-order information of the energy functional.
+
+\paragraph{Second variation}
+The hessian approximation L-BFGS builds is blind to the curvature of the constraint manifold. We now derive the correct expression for the second admissible variation.
+\begin{proposition}[Second variation of the energy]
+    \label{prop:second_variation}
+    Along the flows $\mathcal F_t$ of Proposition~\ref{prop:flow_variations}, with $\delta_v B = \curl(v \times B)$ and $\delta^2_{u,v} B = \curl(u \times \delta_v B)$, the second variation of the energy is
+\begin{align}
+\label{eq:hessian}
+    &\delta^2_{u,v} \Energy(B) = \ip{\delta_u B}{\delta_v B} \\
+    &\quad + \frac{1}{2} \ip{B}{\curl(v \times \delta_u B)} + \frac{1}{2} \ip{B}{\curl(u \times \delta_v B)} . \notag
+\end{align}
+\end{proposition}
+\begin{proof}
+    Expand the push-forward $B_t = \exp(\mathcal F_t) B$ in $t$: 
+    \begin{align}
+        B_t = B + t \, \delta_v B + \frac{t^2}{2} \delta^2_{v,v} B + O(t^3)
+    \end{align}
+    and substitute into $\Energy(B_t) = \frac12 \norm{B_t}^2$. The second-order contribution to the energy is $\frac{t^2}{2} \big( \ip{\delta_v B}{\delta_v B} + \ip{B}{\delta^2_{v,v} B} \big)$, adding the contributions from $u$ and $v$ gives \eqref{eq:hessian}.
+\end{proof}
+The Newton step minimizes the quadratic approximation of $\Energy(B_t)$: find $u$ with $\dvg u = 0$ such that
+\begin{align}
+    \delta^2_{u,v} \Energy(B) = \ip{J \times B - \grad p}{v} \quad \forall \dvg v = 0 .
+\end{align}
+The constraint $\dvg u = 0$ can easily be incorporated by formulating the problem in terms of $\omega, c: \curl \omega + c \mathfrak h = u$. 
+
+At this stage, we drop the harmonic contribution $c \mathfrak h$ as $J \times B \approx \grad p$ is almost orthogonal to $\mathfrak h$ close to equilibria. The final equation to solve for $\omega \in V^1_0$ is thus
+\begin{align}
+    \label{eq:hessian_system}
+    \widetilde{\curl} \, \delta^2 \Energy(B)  \curl \, \omega = \widetilde{\curl} (J \times B).      
+\end{align}
+
+\paragraph{Solution strategy}
+
+It remains to efficiently solve Equation~\eqref{eq:hessian_system} at every relaxation step.
+\begin{lemma}[The Newton system]
+    \label{lem:newton_consistent}
+    The system \eqref{eq:hessian_system} is symmetric and singular. Every gradient $\grad \varphi$, $\varphi \in V^0_0$, lies in its kernel since $\curl \grad = 0$, and the right-hand side is orthogonal to these gradients, as $\ip{\widetilde{\curl} (J \times B)}{\grad \varphi} = \ip{J \times B}{\curl \grad \varphi} = 0$. 
+    
+    The Gauss--Newton part $\ip{\delta_u B}{\delta_v B}$ of \eqref{eq:hessian} has the further kernel of the velocities with $\curl(v \times B) = 0$, the symmetries of $B$, on which the right-hand side vanishes as well by Proposition~\ref{prop:first_variation}.
+\end{lemma}
+
+In practice, we rely on an inexact Newton method \citep[Section 7.1]{nocedal_numerical_2006} with a fixed number of MINRES iterations applied. The line search along the resulting direction is capped at the Newton length $\delta t = 1$.
+
+The condition number of $\widetilde{\curl} \, \delta^2 \Energy(B) \curl$ is $\mathcal O(10^5)$, so to achieve anything with a fixed budget of MINRES iterations, we require a decent preconditioner. We make use of the fact that for stellarators, the magnetic field is mostly harmonic ($\norm{B - c \mathfrak h} / \norm{B} = 0.04$ on the NCSX case). As $\mathfrak h$ is constant throughout relaxation, we only need to compute this approximate inverse once. More details on the preconditioning are given in Appendix~\ref{subsec:further_numerics_newton} and in a forthcoming paper.
+
+Overall, our procedure is similar to that of SIESTA, described in~\citep[Section IX.A]{hirshman_siesta_2011} and~\cite{hirshman_bcyclic_2010}. 
+
+\paragraph{Time-stepping near the discretization floor}
+
+Once the force residual is small enough, the only way to further reduce the magnetic energy is by re-ordering the field near resonant surfaces and current sheets (c.f. Section~\ref{subsec:convergence}). The quadratic model of Newton's approximation breaks down here and following the analytic line search of Equation \eqref{eq:line_search} leads to significant reconnection from time-steps that are too large. While this decreases the energy and hence Newton's method is doing its job, we have to remember that the energy minimization is only a means to find (local) minima where $\delta_v \Energy = 0$.
+
+We therefore modify the criterion to choose $\delta t$ to penalize further amplification of current sheets and use the regularized energy $\Energy + \tfrac{\varepsilon}{2} \norm{J}^2$ instead, with the step direction unchanged.
+\begin{lemma}[Regularized line search]
+    \label{lem:regularised_line_search}
+    The exact minimizer of $\Energy + \frac{\varepsilon}{2} \norm{J}^2$ along the increment $\delta B = \curl E$ of a direction $u$ with force $F$ is
+\begin{align}
+    \label{eq:regularised_step}
+    \delta t_\ast = \frac{\ip{F}{u} - \varepsilon \ip{J}{\widetilde{\curl} \, \delta B}}{\norm{\delta B}^2 + \varepsilon \, \norm{\widetilde{\curl} \, \delta B}^2}, \qquad \varepsilon = C \, h_r^2 .   
+\end{align}
+\end{lemma}
+It replaces the step of Lemma~\ref{lem:line_search}. The effect is that relaxation stops once grid-scale structures emerge. We set $C = 0.1$, determined by a hyperparameter sweep shown in Appendix~\ref{subsec:further_numerics_newton}.
+
+\section{Relaxation numerics}
+\label{sec:numerics_II_relaxation}
+We now formulate a robust group of experiments to test the numerics, hyperparameters, computational efficiency, and convergence of the proposed methodology. We introduce a benchmark example NCSX in \ref{sec:ncsx_configuration} and show results for a quasi-Newton descent method in \ref{sec:hyperparameter_sweeps}. Helicity drift/preservation are discussed in \ref{sec:helicity_preservation}. We end with some nuances of Newton's method and its limit states in \ref{sec:numerics_newton}.
+
+The exact specifications of all numerical experiments that are reported in this work are given in Appendix~\ref{subsec:appdx_experiment_parameters}. As before, all reported timings are for a single H100 GPU.
+
+\subsection{NCSX configuration} \label{sec:ncsx_configuration}
+NCSX was an experiment at Princeton Plasma Physics Laboratory, designed to determine whether a compact QA stellarator can combine ideal confinement properties of tokamaks with the functionality of stellarators~\cite{Zarnstorff2001}.
+ Although the project was not fully realized, this configuration remains a useful tool for analysis of high-$\beta$ design possibilities. 
+
+The equilibrium is the \texttt{li383} NCSX reference configuration computed by {VMEC} with $49$ flux surfaces, $m_{\mathrm{pol}} = 9$ poloidal and $n_{\mathrm{tor}} = 5$ toroidal modes, three field periods, major radius $1.42\,$m, minor radius $0.33\,$m, aspect ratio 4.4, on-axis field $1.47\,$T and a volume-averaged $\beta$ of $4.25\%$ \cite{Zarnstorff2001}. Its rotational transform rises from $0.393$ on the axis to $0.655$ at the edge. The map $\Mapping$ is the $L^2$ projection of the file's $(R, Z)$ series onto the $C^1$ polar spline space, and the initial field is the discrete curl of the histopolated potential of Section~\ref{sec:geometry}. The rotational transform crosses both the $\iota = \frac{1}{2}$ and $\iota = \frac{3}{5}$ surfaces. This is the geometry from Fig.~\ref{figure:ncsx_3d_sections}.\footnote{The high-res data file for this configuration can be found at \url{https://github.com/landreman/regcoil/blob/master/equilibria/wout_li383_1.4m.nc}}
+
+All runs in the following branch off from the reference configuration $(n_r, n_\theta, n_\zeta) = 16\ttimes32\ttimes32$, $p = 2$, mixed precision.
+
+\begin{remark}
+    The seconds per step quoted in the tables are the steady stepping rate over compiled chunks after the first, hence excluding just-in-time compilation. Wall-time axes and the time columns include this first chunk. 
+    
+    The diagnostics evaluated between chunks (helicity, pressures, check-pointing) are excluded from both. This overhead is small (1--5\%) compared to the full run time and would not be present if the goal was simply to produce the final relaxed state without documenting the descent.
+    \end{remark}
+
+\subsection{L-BFGS}
+\label{sec:hyperparameter_sweeps}
+
+We now show a number of different configurations that the relaxation code can be run in, and demonstrate the impacts of the different hyperparameter choices. A comprehensive list of choices available to the user is shown in Appendix \ref{subsec:appdx_code_settings}.   
+
+We want to emphasize that all hyper-parameters in the code have interpretable values in terms of quantities of interest (helicity, plasma beta, etc) or discretization choices (grid scale, solver tolerances, etc). 
+
+\paragraph{Smoothing} 
+
+The hyperparameter $\varepsilon$ that controls the strength of the smoothing is set to $\varepsilon = 0.02  \, h_r^2$ to offset the grid-dependence of the Laplacian spectrum. The constant $0.02$ was determined by a hyperparameter sweep shown in Appendix~\ref{subsec:further_numerics_lbfgs}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/lbfgs_smoothing.pdf}
+    \caption{
+    Impact of velocity smoothing: $\gamma = 1$ (black, solid), $\gamma = 0$ (teal, dashed) for $20{,}000$ steps. Without smoothing, grid-scale oscillations lead to a complete breakdown of the run.
+    }
+    \label{figure:gamma_sweep}
+\end{figure}
+
+From Fig.~\ref{figure:gamma_sweep}, it is evident smoothing the velocity before advecting the magnetic field is a necessity. For $\gamma = 0$, the force decreases to $2 \times 10^{-7}$ at step 2200 and then grows to $2 \times 10^{-5}$ over the remaining $18{,}000$ steps while the helicity drifts by $8 \times 10^{-4}$. Grid-scale oscillations take over, and the run is unusable for the purposes of this work, its final field fully chaotic, the nested initial condition broken down entirely.
+
+The need of regularization of magnetic relaxation dynamics is well understood in the continuous case~\cite{beekie_moffatts_2022}. To our knowledge, the only work that systematically studied this numerically so far is~\cite{yeates_limitations_2022}, but only for a one-dimensional toy model.
+
+
+\subsection{Helicity preservation}
+\label{sec:helicity_preservation}
+Next, we verify the helicity balance of Section~\ref{sec:discrete_relaxation}. Per step the plain explicit step on $B$ drifts by the remainder \eqref{eq:helicity_remainder}, which can be compensated by solving for the correction $\sigma$. This requires operating at high numerical precision, since the drift of a single-precision field is of the order of its own machine epsilon.
+
+Table~\ref{table:helicity_preservation} shows that double precision allows to conserve the helicity to $1.7 \times 10^{-15}$, ten orders of magnitude below the explicit step's $10^{-5}$. In mixed precision, the corrected step is exact to $1.9 \times 10^{-7}$, the rounding of the stored helicity. The removed energy and force residual differ between the corrected and the explicit step by less than $2\%$.
+
+\begin{table}[htb]
+\caption{Helicity preservation, with and without correction term, throughout L-BFGS descent for different choices of precision.}
+\input{tables/helicity_table.tex}
+\label{table:helicity_preservation}
+\end{table}
+
+\begin{remark}
+    We do, however, see that the effects here are much milder than those shown in \citep[Section 4.2.2]{he_topology-preserving_2025}, where the scheme without auxiliary variables dissipated the helicity entirely in only $1{,}000$ steps, presumably due to the choice of larger time-steps.
+\end{remark}
+
+% \paragraph{Potential velocity formulations}
+
+% An alternative way to compute $\grad p$ from $J \times B$ is by writing $v = \curl \omega + c \mathfrak h$ as discussed in Section~\ref{sec:incompressible_variations}: Solve
+% $\widetilde{\curl} \curl \omega = \widetilde{\curl} (J \times B)$ and compute $c = \ip{J \times B}{\mathfrak h} / \norm{\mathfrak h}^2$.
+
+% The velocity smoothing commutes with the curl also discretely, hence we apply $(\mathrm{Id} - \varepsilon \Delta)^{-\gamma}$ to $\omega$ and apply the strong curl operation afterwards. Numerical evaluation of the two methods is given in Appendix \ref{subsec:further_numerics_lbfgs}.
+
+\subsection{Newton's method: convergence to the floor}
+\label{sec:numerics_newton}
+The addition of Newton's method speeds the method significantly and allows us to reach the discretization floor with normalized square force residuals $< 10^{-8}$. Results are shown in Table~\ref{table:newton_convergence} and Fig.~\ref{figure:newton}. 
+
+Computations at reasonable resolutions (e.g. $24\ttimes48\ttimes48$, $149{,}856$ degrees of freedom) reach $< 10^{-8}$ in less than ten minutes.
+
+The cost per step increases as $n_r^{2.1}$, below the rate of total degrees of freedom $\propto n_r^3$. The residual floor itself does not move appreciably with the resolution, but we note that helicity preservation improves, as expected, like $n^p$ ($p=2$).
+
+In Appendix~\ref{subsec:further_numerics_newton}, we show Poincar\'e sections of the relaxed states at three resolutions. Only grid-scale features differ between them, while $p$ and $\iota$ profiles and force residuals are in agreement across resolutions.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/newton_vs_lbfgs.pdf} 
+    \caption{Squared force residual against wall time for L-BFGS($m = 1$) (teal, dashed) and Newton's method (black, solid).
+    Newton's method reaches the discretization floor in a fraction of the time and does not exhibit the same oscillatory behavior of $\| F \|^2$.}
+    \label{figure:newton}
+\end{figure}
+
+\begin{table*}[htb]
+\caption{Comparing the relaxation performance for L-BFGS and Newton's method.}
+\input{tables/newton_convergence_table.tex}
+\label{table:newton_convergence}
+\end{table*}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/newton_resolution.pdf}
+    \caption{Newton's method at different resolutions: most evident is the computational cost increase as $\propto n^{2.12}$ (Table~\ref{table:newton_convergence}). All resolutions share a floor as more and more current sheets are resolved as $h$ shrinks.}
+    \label{figure:newton_h_sweep}
+\end{figure}
+
+
+\section{Reconnection}
+\label{sec:reconnection}
+Magnetic reconnection is what allows the field line topology to change. It leads to the opening and closing of magnetic islands near resonant surfaces and current sheets. Reconnection happens either on grid-scale through finite-resolution effects or can be actively enabled by adding resistivity ($\eta$). 
+
+We discuss resistive reconnection in \ref{sec:resistive_reconnection} and the targeted seeding of magnetic islands in \ref{sec:island_seeding}. Hysteresis (the dependence of the relaxed state on the initial condition) is discussed in \ref{sec:hysteresis}, and the pressure within magnetic island regions in \ref{sec:island_pressure}. 
+ 
+\subsection{Resistive reconnection}
+\label{sec:resistive_reconnection}
+
+It is possible to induce magnetic topology changes by interjecting the relaxation process with a single resistive solve of the form $(\mathrm{Id} - \eta \Delta) B^{n+1} = B^n$. 
+
+\paragraph{Controlling the amount of reconnection}
+The natural question to ask is how to select $\eta$. We do so by assigning a certain helicity budget to the reconnection event.
+\begin{corollary}[Resistive dose]
+    \label{cor:resistive_dose}
+    The size of $\eta$ can be chosen to target a given relative change in helicity: by Lemma~\ref{lem:resistive_variations},
+\begin{align}
+    \label{eq:helicity_drop}
+    \frac{\delta \Helicity}{\Helicity} \approx -2 \eta \frac{\ip{J}{B}}{\ip{A}{B}} .
+\end{align}
+\end{corollary}
+
+For the modest helicity changes within the experiments reported here, we empirically observe that island width increases approximately with the square root of relative helicity change.
+
+With resistive reconnection studies, it is possible to relax a state for a given time, store the reached state closer to equilibrium and perform a reconnection step. The reconnection step drops energy at the rate $-\eta \norm{J}^2$, the squared current norm at the rate $-2 \eta \norm{\curl J}^2 $, and changes the helicity by the desired signed rate $-2\eta \ip{J}{B}$.    
+
+Plasma $\beta$ typically drops along with $J$. Since the energy is essentially unchanged and $\grad p = J \times B$, the relative drop of $\beta$ to first order in $\eta$ is that of $J$ i.e. $-\eta {\norm{\curl J}^2 } / {\norm{J}^2 }$. This is assuming that the pressure-carrying perpendicular current scales with total $J$. Hence,
+\begin{align}
+    \frac {\delta \beta / \beta}{\delta \Helicity / \Helicity} \approx \frac 1 2 \frac{\norm{\curl J}^2 }{\norm{J}^2 } 
+    \frac{\ip{A}{B}}{\ip{\curl A}{\curl B}}   
+\end{align}
+In the numerical experiments this factor is 5 to 7: a 1\% helicity change drops $\beta$ by 5 to 7\%.
+
+The reconnected field will sit at a much larger force balance, from where the relaxation can be continued to a (potentially lower) energy state that was previously topologically inaccessible. This new state might also allow for a lower force residual.
+
+In the limit of infinitely many reconnection steps, all current is dissipated and the vacuum field $\mathfrak h$ is recovered.
+
+\begin{remark}
+    MRX supports check-pointing similar to standard optimization libraries. It is possible to launch another relaxation run starting from the stored state without any reconnection step and compare the results.
+\end{remark}
+
+In Fig.~\ref{figure:ladder_relaxation_trace}, we show a relaxation run with four reconnection events, targeted to change the current helicity by 2.5\% each time. We see, as expected, a stepped curve with helicity practically constant between reconnection events as well as a stepped decrease in $\beta$.
+
+\begin{figure}[thb]
+    \centering
+    \includegraphics[width=\linewidth]{figs/reconnection_ladder.pdf}
+    \caption{Relaxation of the NCSX configuration with Newton's method and four resistive solves (dotted lines), each with a budget of $2.5\%$ of the helicity. Between resistive solves, the helicity is constant to $10^{-7}$. Poincaré sections are shown in Fig.~\ref{figure:reconnection_ladder_poincare_sections}.}
+\label{figure:ladder_relaxation_trace}
+\end{figure}
+
+\begin{figure*}
+  \centering
+  \includegraphics[trim={0cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/ladder_poincare_initial.pdf} \\
+  \includegraphics[trim={0cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/ladder_poincare_rung1.pdf} \\
+  \includegraphics[trim={0cm 0.62cm 0cm 0cm},clip,,width=\textwidth]{figs/ladder_poincare_rung2.pdf} \\
+  \includegraphics[trim={0cm 0cm 0cm 0cm},clip,width=\textwidth]{figs/ladder_poincare_final.pdf} 
+  \caption{Reconnection experiment: Poincaré sections at $\zeta = 0.5$ of a field period. From top to bottom: the initial condition, the state just before the first and the second reconnection step, and the final state.
+  The $3/5$ chain, absent from the initial field, opens to $0.8\,h_r$ before any resistivity is applied. It then grows to $1.5\,h_r$ after the first resistive solve, $2.0$ and $2.5\,h_r$ after the second and third, and reaches $3.0\,h_r$ in the final configuration.}
+\label{figure:reconnection_ladder_poincare_sections}
+\end{figure*}
+
+In Fig.~\ref{figure:reconnection_ladder_poincare_sections}, we plot Poincar\'e sections of the field just before the first and the second reconnection event as well as at the end of the relaxation, i.e. after 60, 120 and 300 Newton steps. Islands increase in size between the reconnection events, and the final equilibrium exhibits a large 3/5 island chain.
+
+\subsection{Island seeding}
+\label{sec:island_seeding}
+
+An island chain at the resonance $r: |\iota(r)| = n_{\mathrm{fp}}\, n / m$ can be seeded in the initial condition by perturbing the toroidal component of the reference potential,
+\begin{align}
+    \label{eq:island_seed}
+    \hat A_\zeta \mapsto \hat A_\zeta + \frac{a \, |\partial_r \Psi_{\mathrm t}(r_0)|}{m}\, g(r)\, \cos\big( 2\pi (m\theta - n\zeta) \big),
+\end{align}
+where $g(r) = \exp\!\big(-(r - r_0)^2 / w^2\big)\, \frac{1 - r^2}{1 - r_0^2}$, $r_0$ is the resonant surface of the equilibrium, $w$ the radial width of the seed, and $a = |\delta \hat B^r| / |\hat B^\zeta|$ at $r_0$. The factor $(1 - r^2)$ leaves the wall trace unchanged. Since the seed is added to the potential, $\dvg B = 0$ holds exactly as well. However, helicity, $\beta$, and force balance are all modified slightly.   
+
+The pendulum estimate gives an island of full width $\approx \sqrt{{8 a\, n_{\mathrm{fp}}}/{\pi m\,|\partial_r \iota|}}$ in $r$. This is using the single-harmonic result from \citep[Section~2.11]{helander_theory_2014} with $\chi_{mn}$ therein replaced by $a = |\delta \hat B^r| / |\hat B^\zeta|$, and our conventions for $\theta$ and $\zeta$. 
+
+We exemplify this by seeding an island chain at the initial condition at two resonances: $3/5$ for one case and $1/2$ for the second.
+
+The resulting Poincaré sections are shown in Fig.~\ref{figure:seeded_islands_poincare_sections} and diagnostics in Table~\ref{table:seeded}, compared to a run with no initial seeding. We see that the topology set by the seeded initial condition is largely preserved. Interestingly, our choice of seed for the $3/5$ island chain differs from that formed via resistive reconnection by a phase shift. The island chains seeded here also appear more stochasticized and exhibit more small scale spatial structure at the end of relaxation. Despite the differences appearing in the Poincaré plots, including the obvious differences appearing in the island chains, the final helicity, energy, volume-averaged-$\beta$, and force balance are in very large agreement; the final energies agree to five digits, the final helicities to 4 digits. From these volume-averaged quantities, one cannot distinguish between these very different magnetic fields. 
+
+The relative differences in energy, helicity, plasma beta and force residual between the three runs are small. The energies agree to $2 \times 10^{-7}$ initially and to $10^{-5}$ or better at the end; the helicities to $3 \times 10^{-5}$ initially and to $10^{-4}$ at the end. Plasma $\beta$ agrees to $10^{-4}$ initially and to $5 \times 10^{-3}$ at the end. The initial force residuals agree to $1\%$, at the floor they differ by a factor of $1.1$ ($\iota = 1/2$) and $2.8$ ($\iota = 3/5$) from the unseeded run.
+
+\begin{figure*}
+    \centering
+    \includegraphics[trim={0cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/seeds_poincare_unseeded.pdf} \\
+    \includegraphics[trim={0cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/seeds_poincare_iota12.pdf} \\
+    \includegraphics[trim={0cm 0cm 0cm 0cm},clip,width=\textwidth]{figs/seeds_poincare_iota35.pdf} 
+    \caption{Island seeding. Poincaré sections of the states of lowest force residual, reached in about 40 Newton steps (Table~\ref{table:seeded}), at $\zeta = 0.5$.
+    The tiles are as in Fig.~\ref{figure:vacuum-qa-poincare}.   
+    Initial conditions with no island seed (top), seeded at $\iota = 1/2$ (center) and at $\iota = 3/5$ (bottom) with amplitude $a = 10^{-2}$.   
+    The seeded chains, $2.7\,h_r$ and $2.1\,h_r$ wide, survive the Newton relaxation within $\pm 10\%$ of their initial width.}
+    \label{figure:seeded_islands_poincare_sections}
+\end{figure*}
+
+\subsection{Hysteresis}
+\label{sec:hysteresis}
+The previous section showed that the final relaxation state can be heavily influenced by the initial condition because the initial state and its topological features can be frozen in, up to grid-scale reconnection processes. 
+The next question we address is how strongly the relaxed state is determined by the initial condition the relaxation starts from. Our intuition was that if some resistive reconnection was introduced to climb the topological barriers from the island seeding, the initial states would converge to the same final equilibrium. This is similar in spirit to a real experimental start-up phase; the plasma begins in a cold resistive state, and heats up to $\sim$ keV temperatures where resistivity is very small and the equilibrium can get frozen-in.
+
+We investigated this question using the following experiment. Starting from the same three initial conditions from Fig.~\ref{figure:seeded_islands_poincare_sections}, i.e. no seed, a seed at $\iota = 1/2$, and one at $\iota = 3/5$, we perform 300 Newton steps with four resistive steps. The helicity budget is slightly higher for this experiment, 3\% per reconnection, and leads to $|\Delta \Helicity / \Helicity| = 10.4\%$ at the final state.
+
+Results are shown in Fig.~\ref{figure:seeded_reconnected_poincare_sections}. The resulting fields largely agree, with a big island chain near $r = 0.8$. As shown in Table~\ref{table:seeded_reconnect}, the relative changes in helicity, energy and plasma $\beta$ differ by $< 1\%$ relatively to one another. The force residua are all $< 2 \times 10^{-9}$.
+
+\begin{figure*}
+    \centering
+    \includegraphics[trim={1.3cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/seeded_reconnect_poincare_unseeded_final.pdf} \\
+    \includegraphics[trim={1.3cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/seeded_reconnect_poincare_iota12_final.pdf} \\
+    \includegraphics[trim={1.3cm 0cm 0cm 0cm},clip,width=\textwidth]{figs/seeded_reconnect_poincare_iota35_final.pdf} 
+    \caption{Island seeding with reconnection. Poincaré sections of final states after 300 Newton steps and four resistive solves, at $\zeta = 0.25$.}
+    \label{figure:seeded_reconnected_poincare_sections}
+\end{figure*}
+
+\begin{table}[htb]
+\centering
+\caption{Diagnostics for the seeded reconnection runs from Fig.~\ref{figure:seeded_reconnected_poincare_sections} after 300 Newton steps.}
+\begin{tabular}{l c c c c}
+\toprule
+seed at $(\iota, r)$ & $\Delta \Energy / \Energy \rttimes 10^{4}$ & $\Delta \Helicity / \Helicity \rttimes 10^{2}$ & $\beta_{\mathrm{vol}} [\%]$ & $\|F\|^2_{\mathrm{norm}} \rttimes 10^{9}$ \\
+\midrule
+-- & $-3.88$ & $-10.42$ & 2.43 & 1.97 \\
+$(1/2, 0.544)$ & $-3.90$ & $-10.42$ & 2.43 & 1.98 \\
+$(3/5, 0.794)$ & $-3.90$ & $-10.39$ & 2.42 & 1.62 \\
+\bottomrule
+\end{tabular}
+\label{table:seeded_reconnect}
+\end{table}
+
+The island widths over relaxation time are shown in Table~\ref{table:seeded_reconnect_widths}. We see that they converge to one another with every reconnection step. The only exception is the seeded 1/2 island chain, which retains a width $> 1.0 \, h_r$ until the end of the run.
+
+\begin{table}[htb]
+\centering
+\caption{Widths of the $3/5$, $1/2$ and $3/7$ island chains in the seeded reconnection runs, in units of the radial cell $h_r = 1/16$.}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}l l c c c c c c@{}}
+\toprule
+ & & & \multicolumn{4}{c}{\makebox[0pt]{before reconnection event}} & \\
+\cmidrule(lr){4-7}
+chain & seed & initial & 1 & 2 & 3 & 4 & final \\
+\midrule
+$3/5$ & -- & 0.0 & 0.8 & 1.6 & 2.2 & 2.7 & 3.4 \\
+ & $3/5$ & 2.3 & 1.9 & 1.2 & 1.6 & 2.5 & 3.3 \\
+ & $1/2$ & 0.0 & 0.7 & 1.7 & 2.2 & 2.7 & 3.4 \\
+\midrule
+$1/2$ & -- & 0.0 & 0.9 & 0.4 & 0.4 & 0.4 & 0.9 \\
+ & $3/5$ & 0.0 & 1.0 & 0.9 & 1.0 & 0.8 & 0.6 \\
+ & $1/2$ & 2.6 & 2.4 & 2.0 & 1.6 & 1.6 & 1.5 \\
+\midrule
+$3/7$ & -- & 0.0 & 0.3 & 0.5 & 0.3 & 0.6 & 0.9 \\
+ & $3/5$ & 0.0 & 0.0 & 0.0 & 0.2 & 0.6 & 0.6 \\
+ & $1/2$ & 0.0 & 0.4 & 0.4 & 0.4 & 0.8 & 0.6 \\
+\bottomrule
+\end{tabular*}
+\label{table:seeded_reconnect_widths}
+\end{table}
+
+This is a very encouraging result. Given the freedom to re-organize the magnetic field, different initial conditions relax to similar final configurations. Again, the final energy, helicity, volume-averaged-$\beta$, and force balance are in very precise agreement. 
+
+The discrepancy $\Delta B := \max_{\mathrm{seed}} \|{B_{\mathrm{seed}} - B_{\mathrm{unseeded}}} \|_{\mathrm{rel}}$ drops from initially $9.1 \times 10^{-4}$ to $1.8 \times 10^{-4}$ at the final state. Every reconnection roughly halves the discrepancy between the seeded runs and the unseeded reference.
+
+In terms of other diagnostics, the three runs start within $1\%$ of one another in the force residual and, as in Sec.~\ref{sec:island_seeding}, within $2 \times 10^{-7}$, $3 \times 10^{-5}$ and $10^{-4}$ in energy, helicity and plasma beta. After 300 steps and four reconnections they agree to $2 \times 10^{-6}$ in energy, to $4 \times 10^{-4}$ in helicity and to $5 \times 10^{-3}$ in plasma beta.
+
+\subsection{Island pressure}
+\label{sec:island_pressure}
+Typically, pressure profiles are flattened near the O-point of a magnetic island, although this depends on the width of the island; smaller islands are better able to maintain a pressure gradient across them \cite{liu_pressure_2026}. 
+
+If we look at the pressure profiles in Figures~\ref{figure:reconnection_ladder_poincare_sections}, \ref{figure:seeded_islands_poincare_sections}, and \ref{figure:seeded_reconnected_poincare_sections}, we see that the spread of $p$ along field-lines (the error bars in these plots) is largest for those field-lines that lie in magnetic islands. The flattening is most clear in the large islands shown in Fig.~\ref{figure:seeded_reconnected_poincare_sections}. However, the spread of $p$ is a sign that $p$ retains a spatial gradient in $r$.
+
+This is expected. A discrepancy $p |_{r_\mathrm{in}} - p |_{r_\mathrm{out}}$ between the island's inner (high pressure) and outer (low pressure) edge leads to a parallel force residual, as $B \cdot F = - B \cdot \grad p$. If we denote by $\ell$ the length a field line needs to move from $r_\mathrm{in}$ to $r_\mathrm{out}$, this parallel force residual is of order $(p |_{r_\mathrm{in}} - p |_{r_\mathrm{out}}) / \ell$. The length $\ell$ is large, tens of toroidal transits in our examples. This is in line with the Cary--Hanson formula~\citep[Equations (44-45)]{cary_simple_1991}, which predicts one full rotation around an O-point every $4/(m|\partial_r \iota|w)$ toroidal transits, with $m$ the poloidal mode number and $w$ the island width. For this reason, the parallel force is small, and its impact on the volume force residual is smaller still by the island's volume fraction; it is an indirect route to address the pressure flattening by minimizing the full volume-averaged force residual, so this process is rarely complete at the end of the relaxation.
+
+\section{Discussion and Outlook}
+\label{sec:discussion}
+
+In this work, we presented a magnetic relaxation method in the spirit of~\cite{chodura_3d_1981} and~\cite{hirshman_siesta_2011} in order to compute MHS equilibria without assuming nested flux surfaces. We demonstrated some of the capabilities of this approach, focusing on the structure-preserving properties, including the crucial conservation of helicity and $\dvg B = 0$.
+
+Open questions and future work are discussed in~\ref{sec:convergence_discussion} and~\ref{sec:future_work}.
+
+To summarize, this work has demonstrated:
+\begin{itemize}
+    \item High resolution convergence studies and relaxation runs. 
+    \item A principled mathematical approach, based on the discrete Hodge decomposition on non-simply connected domains. Control over the amount of reconnection and helicity preservation.
+    \item Very computationally efficient non-nested equilibrium calculations (e.g. finite-$\beta$ NCSX runs with $16\ttimes 32 \ttimes 32$ resolution can be converged to $10^{-6}$ normalized force balance in 2 minutes and to the floor in 4, see Table~\ref{table:newton_convergence}).
+    \item Differentiable non-nested equilibrium calculations, including for future incorporation into stellarator optimization routines.
+\end{itemize}
+
+\subsection{Open questions about convergence}
+\label{sec:convergence_discussion}
+
+Questions remain about what constitutes true convergence. We know any faithful relaxation method will move towards states with singular current sheets. In this work, we chose to modify our line search to halt relaxation once the discretization floor is reached rather than continue to reduce the magnetic energy at the cost of grid-scale reconnection, leading to an increase in force balance residual.
+%
+Numerous other regularization choices are possible and are the subject of future work.
+
+Our numerical results also point to the potential existence of lots of nearby equilibria or ``almost-equilibria'' (qualifying the fact that no solutions are ever at machine-precision normalized force balance), supporting the discussion in Sec.~\ref{subsec:numerical_evidence_3d}. Our various experiments seem to support this conclusion; Fig.~\ref{figure:reconnection_ladder_poincare_sections} relax to states with different island sizes determined by the initial seeding, but all satisfy final normalized force balance to $10^{-8}$ with essentially identical final energy and helicity, and the resistive solutions in Fig.~\ref{figure:seeded_reconnected_poincare_sections} mostly converge but do not perfectly do so, despite having essentially identical relaxation dynamics (final absolute energy, helicity, volume-averaged-$\beta$, and force residual). Nonetheless, it is a useful observation that when the topological barriers are reduced, the convergence of the final state, with respect to the initial state, is substantially improved. It remains plausible from these results and the previous literature that the number of nearby equilibria from small changes in the helicity, volume-averaged-$\beta$, or further convergence towards force balance may be very large. This opens up future work that should clarify how 3D non-nested equilibrium codes should be run to match experimental data. 
+
+\subsection{Future work}
+\label{sec:future_work}
+There are several useful directions for future work. 
+
+\paragraph{Outer loop optimization}
+There are many optimization, stability, and control problems to solve for nuclear fusion devices, many of which depend on the MHS solution. 
+In the context of stellarator optimization, the computation of MHD equilibria comprises a constraint within an outer optimization loop. In particular, when $Q: \Hdiv_0(\Domain) \to \bR$ is a given function that measures the quality of a magnetic field configuration for the sake of some application (e.g. quality of particle confinement, engineering feasibility), then the full optimization problem reads:
+\begin{align}
+    \min_{B \in \Hdiv_0(\Domain)} Q(B) \quad \text{s.t.} \quad \curl B \times B = \grad p, \; \dvg B = 0. \notag
+\end{align}
+Given a parametrized mapping $\Mapping_\alpha: \hat \Domain \to \Domain$, we can also pose the problem
+\begin{align}
+    \min_{\mathtt{a} \in \bR^{n_r n_\theta n_\zeta}}& Q \left( (\Mapping_{\alpha})^2_* \hat B \right) \quad  \text{s.t.} \quad  \dvg B = 0 \\ \notag \text{and}& \; \curl ((\Mapping_{\alpha})^2_* \hat B) \times (\Mapping_{\alpha})^2_* \hat B = \grad p, \notag   
+\end{align}
+where $\Mapping_{\alpha}$ is a $C^1$ diffeomorphism. An example for this is a spline map of the form $[ \Mapping_{\alpha} ]_j = \sum_i \mathtt{a}_{ij} \Lambda_i^0$, where $j \in \{ 1, 2, 3 \}$ and $\mathtt{a} \in \bR^{n_r n_\theta n_\zeta \times 3}$. All experiments in this work are done using such maps.
+
+To solve this shape optimization problem, we require access to gradient information of the objective with respect to the optimization parameters, $\{ \partial_{\alpha} (\Mapping_{\alpha})^2_* \hat B \}_i$. JAX's automatic differentiation tools provide automatic, highly efficient gradients.   
+%
+With this functionality in place, the presented code could be used as a back-end for equilibrium calculation in {SIMSOPT}~\cite{landreman2021simsopt} and other stellarator optimization suites.
+
+\paragraph{TPU support}
+The fact that TPUs do not support any float64 representation natively is a significant challenge for runs that aim to resolve a very small force residual. There are many applications, such as the optimization problems above, where very small ($\norm{F}^2 < 10^{-8}$) residual is not needed, but this manuscript was focused on demonstrating convergence, scaling, and structure-preservation. This is an open problem at the moment, potentially solvable by emulating double precision with several float32 variables. This is, however, non-trivial to implement without performance hits.   
+
+\paragraph{Free boundary solves}
+Free boundary solves with coils are the most robust check for designing the magnetic fields of a stellarator experiment. We are also able to replace the boundary condition $B \cdot n = 0$ by $(B - B_{\mathrm{vac}}) \cdot n = 0$ when we set $v = 0$ on the boundary. This can be done with a penalty method and will allow us to move beyond the case where the computational boundary is a conducting wall or a flux surface \cite{kaptanoglu_computational_2026}. 
+%%
+\paragraph{More general maps}
+All maps in this work are of the form from Equation \eqref{eq:stellarator_map}. Future work will illustrate that we have also implemented (1) the capability to exploit further symmetries like stellarator symmetry to save computational cost and (2) extended the code to maps that are more general (e.g. knotted devices) and not dependent on an initial flux surface solution, using a re-implementation of map2disc~\citep{babin2025construction} in JAX within MRX.
+\paragraph{Comparison of fixed-boundary codes for finite-$\beta$}
+We noted in the introduction and Table~\ref{table:codes} that HINT, SPECTRE, SIESTA are in use for fixed-boundary finite-$\beta$ stellarator equilibrium calculations. A forthcoming publication will perform comparisons between these codes and MRX.  
+
+\section*{Acknowledgments}
+We would like to thank Omar Maj for pointing out the work of Chodura \& Schlüter and many enlightening discussions on the topic over the last years.
+The authors would also like to thank Robert Babin, Martin Campos-Pinto, Mark Cianciosa, Yaman Güçlü, Christopher Hansen, Florian Hindenlang, Elizabeth Paul, Francesco Patrizi, Benjamin Peherstorfer, Stefan Possanner, Matteo Raviola, Georg Stadler, and Vlad Vicol for valuable discussions.
+
+This work was supported through grants from the Simons Foundation under award 560651. We gratefully acknowledge the support of a Google TPU Research Award for providing funding and TPU computing resources.
+
+\section*{Use of Language models}
+Large language models developed by Anthropic PBC and OpenAI PBC were used throughout this work as coding assistants, for implementing and refactoring parts of the MRX code base and its test suite, for setting up,  bookkeeping, and analyzing the numerical experiments, and for generating figures and tables from the run records. 
+%
+They were also used to proofread the manuscript and to check derivations. 
+%
+All code and text was reviewed and edited by the authors, who take full responsibility for the content of this article.
+
+\appendix
+
+\section{Proofs}
+\label{sec:proofs}
+
+\begin{proof}[Proof of Lemma \ref{lem:pullback_preserves_BCs}]
+    Since $\Mapping^{-1}(\partial \Domain) = \partial \hat \Domain$, it holds for all $x\in\partial \Domain$ that
+    \begin{align}
+    (\Mapping^0_* \hat f)(x) = \hat f(\Mapping^{-1}(x)) = 0.   
+    \end{align}
+    Next, for $\hat x\in\partial \hat \Domain$,   
+    \begin{align}
+    D\Mapping(\hat x)^T E(\Mapping(\hat x)) = \hat E(\hat x) = \hat E_r(\hat x) \, \hat e_r,   
+    \end{align}
+    with $\hat E_r \in \bR$ and $\hat e_r$ denoting the unit vector in $r$-direction. This implies $\partial_\theta \Mapping \cdot (E \circ \Mapping) = \partial_\zeta \Mapping \cdot (E \circ \Mapping) = 0$. The tangent vector at $\Mapping$ is given by $\tau = \tau_1 \partial_\theta \Mapping + \tau_2 \partial_\zeta \Mapping$, hence $\tau \cdot (E \circ \Mapping) = 0$.   
+%
+    Lastly, for $\hat x\in\partial \hat \Domain$,   
+    \begin{align}
+        \hat B(\hat x) = \hat B_\theta(\hat x) \, \hat e_\theta + \hat B_\zeta(\hat x) \, \hat e_\zeta,   
+    \end{align} 
+    hence 
+    \begin{align}
+    B \circ \Mapping &= (\det D\Mapping)^{-1} \, D\Mapping \hat B \notag \\ 
+    &= (\det D\Mapping)^{-1} ( \hat B_\theta \, \partial_\theta \Mapping + \hat B_\zeta \, \partial_\zeta \Mapping).   
+    \end{align}
+    At the same time, the normal vector $n$ is proportional to $\partial_\theta \Mapping \times \partial_\zeta \Mapping$ and therefore orthogonal to $B \circ \Mapping$.
+\end{proof}
+
+\begin{proof}[Proof of Lemma~\ref{lem:resistive_variations}]
+    The first identity is Proposition~\ref{prop:first_variation} with $v \times B$ replaced by $v \times B - \eta J$, since $\ip{J}{\eta J} = \eta \norm{J}^2$. For the second, the harmonic component of $B$ is unchanged by admissible variations, so $\delta_v \Helicity = \ip{\delta_v A}{B} + \ip{A}{\delta_v B}$.
+    
+    Now substitute $\delta_v B$ and $\delta_v A$ by their definitions to reach $\delta_v \Helicity = 2 \ip{B}{v \times B - \eta J} = - 2 \eta \ip{J}{B}$.
+\end{proof}
+
+\begin{proof}[Proof of Lemma~\ref{lem:helicity_balance}]
+    Let $B_{\mathfrak H} = \Pi^{\mathfrak H^2_0} B^n$,  constant in $n$ because $\curl E \perp \mathfrak H^2_0$. Then $\curl (A^{n+1} - A^n - \delta t E) = 0$ with $A^{n+1} - A^n - \delta t E \in V^1_0$. Hence this expression is a gradient: $A^{n+1} - A^n - \delta t E = \grad \phi$, $\phi \in V^0_0$ (as $\dim \mathfrak H^1_0 = 0$ in our case), and $\ip{\grad \phi}{B^{n+1} + B_{\mathfrak H}} = 0$ since both fields are divergence-free with vanishing normal trace. It follows that
+    \begin{align}
+    \notag
+        \Helicity^{n+1} - \Helicity^{n}
+        =\, &\ip{A^{n+1} - A^n}{B^{n+1} + B_{\mathfrak H}} \\ &+ \ip{A^n}{B^{n+1} - B^n} \notag \\
+        =\, &\delta t \, \ip{E}{B^{n+1} + B_{\mathfrak H}} + \delta t \, \ip{\curl A^n}{E} \notag \\
+        =\, &\delta t \, \ip{E}{B^{n+1} + B_{\mathfrak H}} + \delta t \, \ip{B^n - B_{\mathfrak H}}{E} \notag \\
+        =\, &\delta t \, \ip{E}{B^{n+1} + B^n},
+    \end{align}
+    by partial integration (with both $A^n$ and $E$ in $V^1_0$) and $\curl A^n = B^n - B_{\mathfrak H}$.
+\end{proof}
+
+\begin{proof}[Proof of Proposition~\ref{prop:energy_dissipation}]
+        From $B^{n+1} = B^n + \delta t \curl E_\sigma$, $\Energy^{n+1} - \Energy^n = \delta t \ip{B^n}{\curl E_\sigma} + \frac{\delta t^2}{2} \norm{\curl E_\sigma}^2$. Since $E_\sigma \in V^1_0$, the definition of the weak curl operator gives $\ip{B^n}{\curl E_\sigma} = \ip{J}{E_\sigma}$. As $J \in V^1_0$ and $\Pi^1_0$ is $L^2$-orthogonal,
+    \begin{align}
+        \ip{J}{E_\sigma} &= \ip{J}{v \times B^n} - \sigma \ip{J}{B^n} \notag \\
+        &= - \ip{v}{J \times B^n} - \sigma \ip{J}{B^n} \notag \\
+        &= - \ip{v}{J \times B^n - \widetilde{\grad} \, p} - \sigma \ip{J}{B^n},
+    \end{align}
+    since $v$ is divergence-free. Substitute $(\mathrm{Id} + \varepsilon \curl \widetilde{\curl}) \, v = J \times B^n - \widetilde{\grad} \, p$ and the claim follows.
+\end{proof}
+
+\section{Additional numerical results}
+\label{sec:appdx_additional_numerics}
+
+\subsection{Further numerical results: L-BFGS}
+\label{subsec:further_numerics_lbfgs}
+
+This section discusses further numerical results and hyperparameter sweeps for the L-BFGS approach.
+
+\paragraph{L-BFGS memory}
+The impact of varying the L-BFGS memory parameter $m$ is shown in Fig.~\ref{figure:lbfgs_sweep}.
+Steepest descent ($m = 0$) decreases the force monotonically but reaches only a force residual of $10^{-7}$. Non-linear conjugate gradient ($m = 1$) reaches $10^{-8}$ at step 1481 and $m = 5$ at step 1142, both with a floor of $2 \times 10^{-9}$. The cost per step is essentially the same, $0.30$, $0.32$ and $0.33$ s for $m = 0, 1, 5$.
+
+\begin{figure}
+\includegraphics[width = \linewidth]{figs/lbfgs_memory.pdf}
+\caption{
+Effect of the L-BFGS memory. 
+}
+\label{figure:lbfgs_sweep}
+\end{figure}
+
+\paragraph{Velocity smoothing}
+Table~\ref{table:epsilon_sweep} shows the hyper-parameter sweep for the velocity smoothing strength. For some values of $c$, the L-BFGS memory is dropped on most steps (Powell's restart, last column), the method degenerates to steepest descent and stalls between $5 \times 10^{-8}$ and $1.4 \times 10^{-7}$.
+
+\begin{table}[htb]
+\caption{Sweeping the smoothing constant $c$ in $\varepsilon = c \, h_r^2$. Smoothing too little breaks the L-BFGS method (row one), while smoothing too much makes the method unable to resolve the small features needed to drop the force residual below $10^{-6}$.}
+\input{tables/smoothing_table.tex}
+\label{table:epsilon_sweep}
+\end{table}
+
+\paragraph{Velocity formulation}
+Table~\ref{table:velocity_choices} compares the two velocity formulations from Section \ref{sec:incompressible_variations} on the NCSX case at the reference configuration. The residual traces agree at every step to within the round-off that separates the two trajectories: the same steps to $10^{-6}$ and $10^{-7}$ (320 and about 1190), $10^{-8}$ at step 1481 against 1542, floors of $1.9$ and $4.0 \times 10^{-9}$, and the same helicity change, as expected from the discrete sequence properties.
+
+The potential route costs $27\%$ less per step ($0.32$ against $0.44$ s), replacing the $k = 3$ Laplacian solve with a $k = 1$ one and the $\varepsilon$-shifted $k = 2$ solve with a $k = 1$ one.
+
+\begin{table}[htb]
+\caption{Velocity formulations: potential and Leray projection. Performance is essentially identical, but the potential route is faster and extends to Newton's method.}
+\input{tables/velocity_table.tex}
+\label{table:velocity_choices}
+\end{table}
+
+\subsection{Further numerical results: Newton}
+\label{subsec:further_numerics_newton}
+
+We give some further numerical results for Newton's descent method in this section.
+
+\paragraph{Precision}
+Solver precision limits the accuracy of the descent direction and consequently the force residual that can be reached. Fig.~\ref{figure:newton_tol_sweep} shows that single precision floors at $\| F \|_{\text{norm}}^2 \approx 1.4 \times 10^{-7}$, while mixed and double precision agree. The tolerance of the inner solves does not enter: at $10^{-6}$, $10^{-8}$ and $10^{-10}$ the three trajectories coincide. 
+
+Per step, mixed precision is approximately $1.5 \times$ faster than float64. Single precision float32 is approximately $3.9 \times$ faster than float64, but at the cost of residual quality.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/newton_precision.pdf}
+    \caption{Newton's method in single, mixed (single-precision solves, double-precision residual) and double precision.}
+    \label{figure:newton_tol_sweep}
+\end{figure}
+
+\paragraph{Order}
+See Fig.~\ref{figure:newton_p_sweep}. Increasing the order past $p=2$ does not pay off. All resolutions share a residual floor: the limit field is not regular enough to benefit from higher-order approximation. Linear/constant splines ($p=1$, not shown), perform very badly in contrast and stall at $\| F \|_{\text{norm}}^2 > 10^{-4}$.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/newton_degree.pdf}
+    \caption{Newton's method for $p = 2, 3, 4$.}
+    \label{figure:newton_p_sweep}
+\end{figure}
+
+\paragraph{Hyperparameters}
+The preconditioner of the Newton solve is built from the first term of the hessian \eqref{eq:hessian} with the field replaced by its vacuum part, $(u, v) \mapsto \ip{\curl(u \times c \mathfrak h)}{\curl(v \times c \mathfrak h)}$, which is fixed for the whole relaxation. This operator has a large nullspace, containing every displacement parallel to $\mathfrak h$, and it is small on the resonant modes, the displacements nearly constant along the field lines of $\mathfrak h$. The preconditioner therefore approximately inverts the shifted operator $(u, v) \mapsto \ip{\curl(u \times c \mathfrak h)}{\curl(v \times c \mathfrak h)} + \kappa \, (2\pi |\mathfrak h|)^2 \ip{u}{v}$. The Newton system itself is not modified. SIESTA linearizes the same force operator but assembles it explicitly and factorizes it \citep[Section IX.A]{hirshman_siesta_2011}. Following, our matrix-free approach, in MRX it is only ever applied.
+
+There are three hyperparameters that need to be set in the inexact Newton method: The preconditioner floor $\kappa$, the line search regularization $C$, and the number of MINRES iterations to approximately invert the hessian. Their optimal values have been determined by sweeps, shown in Table~\ref{table:newton_sweeps}.
+
+\begin{table*}[htb]
+\caption{The Newton configuration on the NCSX case: three one-parameter sweeps, each holding the other two settings at the values in its first column. MINRES iterations determine the speed of descent (6th column), $\kappa$ determines the quality of the floor (4th column), and $C$ determines how well the solution stays at that floor (Fig.~\ref{figure:newton_sweeps}).}
+\input{tables/newton_sweeps_table.tex}
+\label{table:newton_sweeps}
+\end{table*}
+
+The impact of the line search regularization parameter $C$ is shown in Fig.~\ref{figure:newton_sweeps}.
+
+For the right value of $C$, the line-search converges to very small steps at the discretization floor, as the term $\| \curl B \|_{\Omega}^2$ along the step direction grows in the presence of numerous current sheets. The result is that the relaxation dynamics come to a gentle halt ($C \geq 0.1$, yellow, pink, and gray lines). For values of $C$ that are too small, the accepted time-step stays near the Newton's suggested $\delta t = 1$, and the force residual rises as reconnection on grid-scale levels takes place.
+
+\begin{figure}
+    \centering
+    \begin{subfigure}{\linewidth}\centering
+        \includegraphics[width=\linewidth]{figs/newton_regularization_step.pdf}
+        \caption{}\label{figure:newton_sweeps_a}
+    \end{subfigure}
+    \begin{subfigure}{\linewidth}\centering
+        \includegraphics[width=\linewidth]{figs/newton_regularization_residual.pdf}
+        \caption{}\label{figure:newton_sweeps_b}
+    \end{subfigure}
+    \caption{The step-regularization constant $C$: (a) accepted step $\delta t$, (b) squared force residual.}
+    \label{figure:newton_sweeps}
+\end{figure}
+
+\paragraph{Resolution}
+Fig.~\ref{figure:newton_poincare_sections} shows the Poincar\'e sections of the relaxed states at three resolutions. The grid-scale island size and features are resolution-dependent, as the lowest resolution seems to open up a very small island chain and the highest resolution appears to roughly keep the nested surfaces. Nonetheless, the final pressure profiles, rotational transform profiles, and force balances are in very strong agreement across resolution. 
+
+\begin{figure*}
+    \centering
+    \includegraphics[trim={1.5cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/newton_poincare_n16.pdf} \\
+    \includegraphics[trim={1.5cm 0.62cm 0cm 0cm},clip,width=\textwidth]{figs/newton_poincare_n24.pdf} \\
+    \includegraphics[trim={1.5cm 0cm 0cm 0cm},clip,width=\textwidth]{figs/newton_poincare_n32.pdf} 
+    \caption{Poincaré sections at $\zeta = 0$ for the Newton descent runs in Table \ref{table:newton_convergence}. Resolutions are $n = 16 \ttimes  32 \ttimes  32$ (top), $24 \ttimes  48 \ttimes  48$ (middle), and $32 \ttimes  64 \ttimes  64$ (bottom). The shape of grid-scale island features is, as expected, resolution-dependent; the $3/5$ island chain does not form at the highest resolution.}
+    \label{figure:newton_poincare_sections}
+\end{figure*}
+
+\paragraph{Island seeding}
+
+Table~\ref{table:seeded} shows runtime and relaxation steps to the residual floor as well as energy and helicity change for the seeded relaxation runs. We observe that all runs perform similarly in these metrics despite their markedly different Poincaré cross-sections shown in Fig.~\ref{figure:seeded_islands_poincare_sections}.
+\begin{table*}[htb] 
+\input{tables/seeded_islands_table.tex}
+\caption{Island seeds on the NCSX case, Newton's method.}
+\label{table:seeded}
+\end{table*}
+
+\section{Hyper-parameters}
+\label{sec:appdx_hyperparameters}
+
+\subsection{Numerical experiments}
+\label{subsec:appdx_experiment_parameters}
+
+Table~\ref{table:runs} lists the parameters used for all numerical experiments reported in this work.
+
+\begin{table*}[htb]
+\caption{The runs behind the paper's figures and tables. The reference configuration is Newton's method on the NCSX li383 case at $16\ttimes32\ttimes32$, $p = 2$, mixed precision, solver tolerance $10^{-8}$, the harmonic atom at $\kappa = 3$ with a budget of $100$ MINRES iterations, the regularized step with $C = 0.1$, a CFL cap of $0.5$, and a budget of $200$ steps from the VMEC field in chunks of $20$, stopping at the floor (a chunk's mean accepted step below $0.1$ or its mean squared residual below $10^{-8}$); no seed, no reconnection. For L-BFGS, the defaults are $m = 1$ with Powell's restart, velocity smoothing with $\gamma = 1$ and $c = 0.02$, the potential velocity, $C = 0$ and $5{,}000$ steps in chunks of $500$ without a floor stop. Each row names what the experiment sweeps and what else deviates from the reference. A seed $(m, n)$ has amplitude $a = 10^{-2}$ and width $0.1$ at the resonant surface. A reconnection event is one resistive solve every $60$ steps spending the stated share of the helicity.}
+\input{tables/appendix_run_parameters.tex}
+\label{table:runs}
+\end{table*}
+
+\subsection{Code settings}
+\label{subsec:appdx_code_settings}
+
+Finally, we provide a complete list of all user-set MRX parameters and their default values in Table~\ref{table:hyperparameters}.
+
+\begin{table*}[htb]
+\caption{MRX relaxation parameter choices and default values.}
+\input{tables/hyperparameters_table}
+\label{table:hyperparameters}
+\end{table*}
+
+\clearpage
+\bibliographystyle{elsarticle-num} 
+\bibliography{bibliography}
+
+\end{document}
+
+

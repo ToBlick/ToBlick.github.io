@@ -7,4 +7,6 @@ group :jekyll_plugins do
   gem "jekyll-sitemap"
   gem "jekyll-include-cache"
   gem "jekyll-redirect-from"
+  gem "jekyll-gist"
+  gem "jemoji"
 end

@@ -54,6 +54,7 @@ include:
 # Plugins (previously gems:)
 plugins:
 #  - jekyll-paginate
+  - jekyll-remote-theme
   - jekyll-sitemap
   - jekyll-gist
   - jemoji

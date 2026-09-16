@@ -105,7 +105,7 @@ classes: wide
 <div class="project-card">
   <div class="project-thumb">
     <a href="/projects/magnetic-relaxation/">
-      <img src="/assets/images/projects/mrx-teaser.gif" alt="Magnetic Relaxation">
+      <img src="/assets/images/projects/mrx-ncsx-islands.png" alt="Magnetic Relaxation">
     </a>
   </div>
   <div class="project-info">
@@ -116,7 +116,8 @@ classes: wide
     </div>
     <div class="project-links">
       <a href="/projects/magnetic-relaxation/">Project page</a>
-      <a href="https://arxiv.org/abs/2510.26986">MRX preprint</a>
+      <a href="/assets/pdfs/MRX_paper.pdf">MRX paper (PDF)</a>
+      <!-- <a href="https://arxiv.org/abs/2510.26986">MRX preprint</a> -->
     </div>
   </div>
 </div>
@@ -124,7 +125,7 @@ classes: wide
 <div class="project-card">
   <div class="project-thumb">
     <a href="/projects/population-dynamics/">
-      <img src="/assets/images/projects/ngif-teaser.gif" alt="Population Dynamics">
+      <img src="/assets/images/projects/tpf-teaser.png" alt="Population Dynamics">
     </a>
   </div>
   <div class="project-info">
@@ -135,8 +136,7 @@ classes: wide
     </div>
     <div class="project-links">
       <a href="/projects/population-dynamics/">Project page</a>
-      <a href="https://arxiv.org/abs/2507.05107">DICE preprint</a>
-      <a href="https://proceedings.neurips.cc/paper_files/paper/2024/file/6782c18960808848174cfe60742b415a-Paper-Conference.pdf">NeurIPS paper</a>
+      <a href="https://arxiv.org/abs/2605.26285">TPF paper</a>
     </div>
   </div>
 </div>
@@ -151,11 +151,11 @@ classes: wide
     <div class="project-title"><a href="/projects/optimal-transport/">Optimal Transport Registration for Model Reduction</a></div>
     <!-- <div class="project-collab">PhD research at Max Planck Institute for Plasma Physics</div> -->
     <div class="project-desc">
-      Reduced basis methodsfor advection-dominated problems using linearized Optimal Transport.
+      Reduced basis methods for advection-dominated problems using linearized Optimal Transport.
     </div>
     <div class="project-links">
       <a href="/projects/optimal-transport/">Project page</a>
-      <a href="https://doi.org/10.1137/23M1570715">SISC Paper</a>
+      <a href="https://doi.org/10.1137/23M1570715">OT-RB Paper</a>
     </div>
   </div>
 </div>

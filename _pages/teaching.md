@@ -6,8 +6,12 @@ author_profile: true
 classes: wide
 ---
 
-# Intro to Computer Science (CSCI-UA 101 003)
+# Data Structures (CSCI-UA 102)
 
-I will be teaching Section 3 of CS 101 at NYU in Spring 2026.
+In Fall 2026, I am running recitations for CS 102 at NYU.
 
-All content for the lecture is hosted on [GitHub](https://github.com/ToBlick/cs101/), including [examples](https://github.com/ToBlick/cs101-examples) and [practice problems and previous exams](https://github.com/ToBlick/cs101-examples/tree/main/docs).
+# Intro to Computer Science (CSCI-UA 101)
+
+Before that, I taught Section 3 of CS 101 at NYU.
+
+All content for the lecture is hosted on github, including [examples](https://github.com/ToBlick/cs101-examples) and [practice problems and previous exams](https://github.com/ToBlick/cs101-examples/tree/main/docs).
