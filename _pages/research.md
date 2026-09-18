@@ -116,8 +116,8 @@ classes: wide
     </div>
     <div class="project-links">
       <a href="/projects/magnetic-relaxation/">Project page</a>
-      <a href="/assets/pdfs/MRX_paper.pdf">MRX paper (PDF)</a>
-      <!-- <a href="https://arxiv.org/abs/2510.26986">MRX preprint</a> -->
+      <!-- <a href="/assets/pdfs/MRX_paper.pdf">MRX paper (PDF)</a> -->
+      <a href="https://arxiv.org/abs/2510.26986">MRX preprint</a>
     </div>
   </div>
 </div>
