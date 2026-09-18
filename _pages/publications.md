@@ -12,6 +12,12 @@ My preprints can be found on [arXiv](https://arxiv.org/search/?searchtype=author
 
 ## Preprints
 
+### MRX: A Differentiable 3D MHD Equilibrium Solver Without Nested Flux Surfaces
+**T. Blickhan**, J. Stratton, A. A. Kaptanoglu  
+*arXiv preprint, 2025 (v2 2026)*
+
+[📄 Project Page](/projects/magnetic-relaxation/) | [📄 arXiv](https://arxiv.org/abs/2510.26986) | [💻 Code](https://github.com/ToBlick/MRX)
+
 ### Leveraging Gauge Freedom for Learning Non-Gradient Population Dynamics of Stochastic Systems
 J. Berman, **T. Blickhan**, B. Peherstorfer  
 *arXiv preprint, 2026*
@@ -23,13 +29,6 @@ A. A. Kaptanoglu, **T. Blickhan**
 *arXiv preprint, 2026*
 
 [📄 Project Page](/projects/magnetic-relaxation/) | [📄 arXiv](https://arxiv.org/abs/2605.01652)
-
-### MRX: A Differentiable 3D MHD Equilibrium Solver Without Nested Flux Surfaces
-**T. Blickhan**, J. Stratton, A. A. Kaptanoglu  
-*arXiv preprint, 2025*
-
-[📄 Project Page](/projects/magnetic-relaxation/) | [📄 PDF](/assets/pdfs/MRX_paper.pdf) | [💻 Code](https://github.com/ToBlick/MRX)
-<!-- [📄 arXiv](https://arxiv.org/abs/2510.26986) -->
 
 ### DICE: Discrete Inverse Continuity Equation for Learning Population Dynamics
 **T. Blickhan**, J. Berman, A. Stuart, B. Peherstorfer  
